@@ -171,4 +171,11 @@ const main = async (): Promise<void> => {
 	}
 }
 
-await main()
+await main().catch((err) => {
+	// Any unexpected failure (config import error, a deploy-engine throw) becomes a clean exit 1 with a
+	// readable message — not an unhandled promise rejection. Never print the raw error object: it could
+	// carry a clone URL with an embedded token. The engine itself returns a `failed` result rather than
+	// throwing, so reaching here means a fault outside the plan (loading config, building context).
+	console.error(`vozka: ${err instanceof Error ? err.message : 'unknown error'}`)
+	process.exit(1)
+})

@@ -94,11 +94,20 @@ export const isRunnerJob = (value: unknown): value is RunnerJob => {
 	if (typeof value !== 'object' || value === null) {
 		return false
 	}
+	if (
+		!('runId' in value && typeof value.runId === 'string')
+		|| !('repoUrl' in value && typeof value.repoUrl === 'string')
+		|| !('ref' in value && typeof value.ref === 'string')
+		|| !('env' in value && typeof value.env === 'string')
+		|| !('credentials' in value && typeof value.credentials === 'object' && value.credentials !== null)
+	) {
+		return false
+	}
+	// The two platform creds are mandatory and must be NON-EMPTY: never start a deploy that would only
+	// discover a blank account id / token after a clone + install (the deploy would fail mid-run).
+	const creds = value.credentials
 	return (
-		'runId' in value && typeof value.runId === 'string'
-		&& 'repoUrl' in value && typeof value.repoUrl === 'string'
-		&& 'ref' in value && typeof value.ref === 'string'
-		&& 'env' in value && typeof value.env === 'string'
-		&& 'credentials' in value && typeof value.credentials === 'object' && value.credentials !== null
+		'CLOUDFLARE_ACCOUNT_ID' in creds && typeof creds.CLOUDFLARE_ACCOUNT_ID === 'string' && creds.CLOUDFLARE_ACCOUNT_ID !== ''
+		&& 'CLOUDFLARE_API_TOKEN' in creds && typeof creds.CLOUDFLARE_API_TOKEN === 'string' && creds.CLOUDFLARE_API_TOKEN !== ''
 	)
 }

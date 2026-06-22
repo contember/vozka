@@ -7,6 +7,14 @@
 
 import type { LogLine, RunnerJob, RunnerState, RunnerStatus } from './protocol'
 
+/**
+ * Upper bound on the in-memory log replay buffer. A pathologically chatty build (verbose installs,
+ * huge generated output) must not exhaust the container's memory. The relay continuously flushes every
+ * line to R2, so once a line is persisted it's safe to drop from the in-memory buffer — only a NEW
+ * subscriber's replay is bounded, never the durable R2 log.
+ */
+const MAX_BUFFER_LINES = 10_000
+
 /** A spawned command's outcome plus its (already line-split, redacted) output. */
 export interface SpawnResult {
 	exitCode: number
@@ -97,6 +105,10 @@ export class Runner {
 		const text = this.redact(rawText)
 		const line: LogLine = { ts: this.env.now(), stream, text }
 		this.buffer.push(line)
+		if (this.buffer.length > MAX_BUFFER_LINES) {
+			// Drop the oldest 10% in one splice (amortized O(1) per line) — those lines are already in R2.
+			this.buffer.splice(0, Math.floor(MAX_BUFFER_LINES * 0.1))
+		}
 		for (const sub of this.subscribers) {
 			sub(line)
 		}
