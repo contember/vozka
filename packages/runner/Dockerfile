@@ -6,12 +6,11 @@
 # config.
 #
 # BUILD CONTEXT = the vozka repo ROOT (so we can copy the workspace packages). Run via
-# `bun run docker:build` (from packages/runner), which first vendors a fresh oblaka tarball
-# (see docker/prepare.ts) and then:
+# `bun run docker:build` (from packages/runner):
 # docker build -f packages/runner/Dockerfile -t vozka-runner <repo-root>
 #
-# oblaka-iac is installed from that vendored tarball (docker/vendor/), NOT from npm: the published
-# oblaka-iac predates the programmatic `deploy()` the M1 engine calls. @propustka/* resolve from npm.
+# oblaka-iac, @propustka/* and wrangler all resolve from npm; oblaka-iac is pinned (docker/package.json)
+# to the version that ships the programmatic `deploy()` the engine calls.
 
 FROM ubuntu:24.04
 
@@ -37,15 +36,14 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 # wrangler on PATH globally: the deploy step shells out to a bare `wrangler` (deploy-worker /
 # d1 migrations / secret put) with cwd = the target repo, so it must resolve regardless of cwd.
-RUN bun install -g wrangler@4
+# Pinned to match the version @vozka/core + @vozka/config build against (no version skew at deploy).
+RUN bun install -g wrangler@4.72.0
 
 WORKDIR /opt/vozka
 
-# A self-contained workspace: just the three packages the runner needs at runtime, plus the
-# vendored oblaka tarball. `bun install` resolves oblaka-iac from the tarball and @propustka/* +
-# wrangler from npm.
+# A self-contained workspace: just the three packages the runner needs at runtime. `bun install`
+# resolves oblaka-iac + @propustka/* from npm (wrangler is installed globally above).
 COPY packages/runner/docker/package.json ./package.json
-COPY packages/runner/docker/vendor ./vendor
 COPY packages/config ./packages/config
 COPY packages/core ./packages/core
 COPY packages/runner/src ./packages/runner/src

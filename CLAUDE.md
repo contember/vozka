@@ -14,7 +14,7 @@ A deploy control plane for a Cloudflare Workers ecosystem. An app declares its f
 ## Commands
 
 ```bash
-bun install                              # resolves the workspace + the file:../oblaka override
+bun install                              # resolves the workspace (oblaka-iac from npm, pinned ^0.0.17)
 bun run typecheck                        # all packages (bun run --filter '*' typecheck)
 bun test                                 # all tests
 bun test packages/core/src/__tests__/deploy.test.ts   # a single test file
@@ -46,8 +46,9 @@ resource primitive and the propustka declaration types, so a `vozka.config.ts` n
 
 ## Critical Invariants
 
-- **`oblaka-iac` is pinned to `file:../oblaka`** (root `overrides`) because the published version lacks the
-  programmatic `deploy()` the engine calls. Don't remove the override until oblaka publishes it.
+- **`oblaka-iac` resolves from npm, pinned to `^0.0.17`** (the first published version with the programmatic
+  `deploy()` the engine calls). The old `file:../oblaka` override is gone. vozka + oblaka + propustka are a
+  co-versioned suite — bump the pin deliberately (every package + the runner image's `docker/package.json`).
 - **`config`, `core`, `worker` relax exactly two strict flags** (`noUncheckedIndexedAccess`,
   `noPropertyAccessFromIndexSignature`) ONLY to tolerate oblaka's raw-TS source. Keep our own code strict;
   never widen the relaxation or add `as` / `@ts-ignore` / `any` to work around oblaka — ask first.

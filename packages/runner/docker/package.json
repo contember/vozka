@@ -7,13 +7,10 @@
 		"packages/core",
 		"packages/runner"
 	],
-	"//": "Slimmed workspace root baked into the runner image. The `overrides` pins EVERY oblaka-iac to the vendored tarball (docker/vendor/, packed from the local sibling oblaka by docker/prepare.ts) — mirroring the repo root's `oblaka-iac: file:../oblaka` — because the npm-published oblaka-iac predates the programmatic deploy() the M1 engine calls. @propustka/* resolve from npm; wrangler is installed globally in the image (on PATH).",
+	"//": "Slimmed workspace root baked into the runner image. oblaka-iac, @propustka/* and wrangler all resolve from npm; oblaka-iac is pinned to the version that ships the programmatic deploy() the engine calls (kept in lockstep with the workspace packages). wrangler is installed globally in the image (on PATH).",
 	"dependencies": {
 		"@propustka/client": "^0.0.5",
 		"@propustka/core": "^0.0.5",
-		"oblaka-iac": "file:./vendor/oblaka-iac.tgz"
-	},
-	"overrides": {
-		"oblaka-iac": "file:./vendor/oblaka-iac.tgz"
+		"oblaka-iac": "^0.0.17"
 	}
 }

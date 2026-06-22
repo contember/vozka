@@ -14,8 +14,7 @@
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"serve": "bun src/serve.ts",
-		"docker:prepare": "bun docker/prepare.ts",
-		"docker:build": "bun run docker:prepare && docker build -f Dockerfile -t vozka-runner ../.."
+		"docker:build": "docker build -f Dockerfile -t vozka-runner ../.."
 	},
 	"dependencies": {
 		"@vozka/core": "workspace:*"

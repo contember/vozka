@@ -8,7 +8,7 @@ One container = one run. Assumes the root CLAUDE.md.
 ```bash
 bun run serve            # run the in-container HTTP server locally (src/serve.ts)
 bun test                 # protocol + server + runner unit tests
-bun run docker:build     # vendor the oblaka tarball, then docker build (context = repo ROOT)
+bun run docker:build     # docker build (context = repo ROOT); deps resolve from npm
 ```
 
 ## Layout
@@ -24,6 +24,6 @@ bun run docker:build     # vendor the oblaka tarball, then docker build (context
 - **Secrets + credentials go to the `vozka` child via ENV only** — never on argv, never echoed in a
   response, never in a log line verbatim (the runner redacts them). They arrive in the `POST /run` body.
 - **One run per process:** a second `POST /run` while one is active → 409.
-- **`oblaka-iac` is installed from a vendored tarball** (`docker/vendor/`), NOT npm — the published oblaka
-  predates the programmatic `deploy()`. `docker:prepare` re-vendors it; the Docker build context is the repo root.
+- **`oblaka-iac` installs from npm** (pinned in `docker/package.json`, in lockstep with the workspace) — the
+  published oblaka now ships the programmatic `deploy()`. The Docker build context is the repo ROOT.
 - **`wrangler` must be on PATH globally** in the image — the deploy step shells out to a bare `wrangler` with cwd = the target repo.

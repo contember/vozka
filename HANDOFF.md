@@ -26,8 +26,10 @@ apply `--local` ✓ · offline dry-run builds the full 7-step plan (incl. vozka'
 
 Nothing below was executed; all of it requires real accounts/credentials.
 
-1. **Publish oblaka** with the new programmatic `deploy()` (currently vozka resolves it via a
-   root `overrides: { "oblaka-iac": "file:../oblaka" }`). Once published, drop the override.
+1. ~~**Publish oblaka** with the new programmatic `deploy()`.~~ **DONE** — published as
+   `oblaka-iac@0.0.17`; the `file:../oblaka` override is dropped and every package + the runner image pins
+   `oblaka-iac` from npm (`^0.0.17` / `>=0.0.17` peer). The `deploy()` work was reintegrated onto oblaka
+   `main` (which had moved to 0.0.16 with OAuth-deploy changes) and released via its tag → CI pipeline.
 2. **Cloudflare creds:** account id + API token for the **single account** vozka runs on and deploys
    into (propustka + vozka + the apps all share it). A second account gets its own propustka + vozka.
 3. **Deploy propustka first** (its own `scripts/provision-access.ts` — sets up its Access front
@@ -49,6 +51,18 @@ Nothing below was executed; all of it requires real accounts/credentials.
 8. **Migrate apps (incremental):** consolidate each app's `oblaka.ts` + `propustka.schema.ts` +
    `propustka.access.ts` into one `vozka.config.ts`; read `env`/`domain` from context. Until
    migrated, vozka dual-injects legacy `<APP>_HOSTNAME` so the old recipes keep working.
+
+## Resolved since the original handoff
+
+- **oblaka published + override dropped** — see boundary item 1 above (`oblaka-iac@0.0.17` from npm).
+- **Per-app-env deploy lock** — closes the design's "coordinator DO" gap. A `DeployLock` Durable Object
+  (one instance per `<app>:<env>`, `src/DeployLock.ts`) gives mutual exclusion: `executeDeploy` takes the
+  lock before starting and releases it after; a contended run is left `pending` and re-enqueued (the
+  consumer's `deferred` path), so two triggers for the same target can't race on cf-state / wrangler /
+  propustka. The lease is TTL-bounded (self-heals if a consumer dies) and holder-checked.
+- **Robustness fixes** — `isRunnerJob` now rejects blank CF creds; the `vozka` CLI exits 1 cleanly on a
+  config-load/engine throw (no unhandled rejection); the runner's log replay buffer is capped (no OOM on a
+  chatty build); the runner image pins `wrangler@4.72.0` to match the workspace.
 
 ## Known follow-ups / decisions for you
 
@@ -72,9 +86,9 @@ Nothing below was executed; all of it requires real accounts/credentials.
 ## Useful commands
 
 ```
-bun install                     # resolves workspace (+ file: oblaka override)
+bun install                     # resolves workspace (oblaka-iac from npm, pinned ^0.0.17)
 bun run typecheck               # all packages
-bun test                        # 141 tests
+bun test                        # 143 tests
 bun run --filter @vozka/dashboard build
 cd packages/runner && bun run docker:build   # build runner image
 cd packages/worker && bunx oblaka oblaka.ts && bunx wrangler d1 migrations apply DB --local

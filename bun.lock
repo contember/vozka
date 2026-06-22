@@ -18,12 +18,12 @@
         "@cloudflare/workers-types": "^4.20251001.0",
         "@propustka/core": "^0.0.5",
         "@types/bun": "latest",
-        "oblaka-iac": "latest",
+        "oblaka-iac": "^0.0.17",
         "wrangler": "4.72.0",
       },
       "peerDependencies": {
         "@propustka/core": "^0.0.5",
-        "oblaka-iac": "*",
+        "oblaka-iac": ">=0.0.17",
       },
     },
     "packages/core": {
@@ -39,12 +39,12 @@
         "@cloudflare/workers-types": "^4.20251001.0",
         "@propustka/client": "^0.0.5",
         "@types/bun": "latest",
-        "oblaka-iac": "latest",
+        "oblaka-iac": "^0.0.17",
         "wrangler": "4.72.0",
       },
       "peerDependencies": {
         "@propustka/client": "^0.0.5",
-        "oblaka-iac": "*",
+        "oblaka-iac": ">=0.0.17",
       },
     },
     "packages/dashboard": {
@@ -89,13 +89,10 @@
         "@cloudflare/workers-types": "^4.20251001.0",
         "@types/bun": "latest",
         "lopata": "latest",
-        "oblaka-iac": "latest",
+        "oblaka-iac": "^0.0.17",
         "wrangler": "^4.24.0",
       },
     },
-  },
-  "overrides": {
-    "oblaka-iac": "file:../oblaka",
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
@@ -458,7 +455,7 @@
 
     "kleur": ["kleur@4.1.5", "", {}, "sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ=="],
 
-    "lopata": ["lopata@0.19.2", "", { "dependencies": { "smol-toml": "^1.6.0" }, "bin": { "lopata": "src/cli.ts" } }, "sha512-cvRvn35XMRqPgvOKmjkmswP7PYVgkRC6IlnsHG2ZKf4BTOPKSs/wIedo5FI4M1sf+m6xuAK5W16JM7MzsQIdrg=="],
+    "lopata": ["lopata@0.20.0", "", { "dependencies": { "smol-toml": "^1.6.0" }, "bin": { "lopata": "src/cli.ts" } }, "sha512-mgSzsjZY4uS7b2NcTK3t+Vww1BwGUEgJsdA57CHGZ/2I7YBnIC5PM7dMlLbAQob50s+WnwvnwfSEhXCDzcWQCQ=="],
 
     "lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
 
@@ -469,6 +466,8 @@
     "nanoid": ["nanoid@3.3.15", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA=="],
 
     "node-releases": ["node-releases@2.0.48", "", {}, "sha512-1uz8041X6LoI6ZSdZacM9lVY28vuzDlSKitnpbSNK0RfKoIJkX29NBPVEFXhnuSuEOA9Ww0xnPJ+ILWbGAv8DA=="],
+
+    "oblaka-iac": ["oblaka-iac@0.0.17", "", { "dependencies": { "jsonc-parser": "^3.3.1" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "src/commands/run.ts" } }, "sha512-l5/Iscwm0FQh8Iw4oG3IKVcdzX32Ap2bNEzfBIZe7kHdXMQujM5aXNR36nxSvDyy9R7qdf393NtS5G9UtJlW4w=="],
 
     "path-to-regexp": ["path-to-regexp@6.3.0", "", {}, "sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ=="],
 
@@ -534,136 +533,6 @@
 
     "@jridgewell/remapping/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@vozka/config/oblaka-iac": ["oblaka-iac@file:../oblaka", { "dependencies": { "jsonc-parser": "^3.3.1" }, "devDependencies": { "@biomejs/biome": "^2.4.6", "@cloudflare/workers-types": "^4.20260312.1", "@types/bun": "latest", "dprint": "^0.52.0", "wrangler": "^4.72.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "./src/commands/run.ts" } }],
-
-    "@vozka/config/oblaka-iac": ["oblaka-iac@file:../oblaka", { "dependencies": { "jsonc-parser": "^3.3.1" }, "devDependencies": { "@biomejs/biome": "^2.4.6", "@cloudflare/workers-types": "^4.20260312.1", "@types/bun": "latest", "dprint": "^0.52.0", "wrangler": "^4.72.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "./src/commands/run.ts" } }],
-
-    "@vozka/core/oblaka-iac": ["oblaka-iac@file:../oblaka", { "dependencies": { "jsonc-parser": "^3.3.1" }, "devDependencies": { "@biomejs/biome": "^2.4.6", "@cloudflare/workers-types": "^4.20260312.1", "@types/bun": "latest", "dprint": "^0.52.0", "wrangler": "^4.72.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "./src/commands/run.ts" } }],
-
-    "@vozka/core/oblaka-iac": ["oblaka-iac@file:../oblaka", { "dependencies": { "jsonc-parser": "^3.3.1" }, "devDependencies": { "@biomejs/biome": "^2.4.6", "@cloudflare/workers-types": "^4.20260312.1", "@types/bun": "latest", "dprint": "^0.52.0", "wrangler": "^4.72.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "./src/commands/run.ts" } }],
-
-    "@vozka/worker/oblaka-iac": ["oblaka-iac@file:../oblaka", { "dependencies": { "jsonc-parser": "^3.3.1" }, "devDependencies": { "@biomejs/biome": "^2.4.6", "@cloudflare/workers-types": "^4.20260312.1", "@types/bun": "latest", "dprint": "^0.52.0", "wrangler": "^4.72.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "oblaka": "./src/commands/run.ts" } }],
-
     "sharp/semver": ["semver@7.8.5", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="],
-
-    "@vozka/config/oblaka-iac/dprint": ["dprint@0.52.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.52.0", "@dprint/darwin-x64": "0.52.0", "@dprint/linux-arm64-glibc": "0.52.0", "@dprint/linux-arm64-musl": "0.52.0", "@dprint/linux-loong64-glibc": "0.52.0", "@dprint/linux-loong64-musl": "0.52.0", "@dprint/linux-riscv64-glibc": "0.52.0", "@dprint/linux-x64-glibc": "0.52.0", "@dprint/linux-x64-musl": "0.52.0", "@dprint/win32-arm64": "0.52.0", "@dprint/win32-x64": "0.52.0" }, "bin": { "dprint": "bin.js" } }, "sha512-qXf3B6/G4E6SJKngfo7a0z1ja21o/JJ55cF8xyhyIqvJGrpJ96vhXLr37RrbWBWIj8eV+hquBkCAV6jCwenQYA=="],
-
-    "@vozka/config/oblaka-iac/dprint": ["dprint@0.52.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.52.0", "@dprint/darwin-x64": "0.52.0", "@dprint/linux-arm64-glibc": "0.52.0", "@dprint/linux-arm64-musl": "0.52.0", "@dprint/linux-loong64-glibc": "0.52.0", "@dprint/linux-loong64-musl": "0.52.0", "@dprint/linux-riscv64-glibc": "0.52.0", "@dprint/linux-x64-glibc": "0.52.0", "@dprint/linux-x64-musl": "0.52.0", "@dprint/win32-arm64": "0.52.0", "@dprint/win32-x64": "0.52.0" }, "bin": { "dprint": "bin.js" } }, "sha512-qXf3B6/G4E6SJKngfo7a0z1ja21o/JJ55cF8xyhyIqvJGrpJ96vhXLr37RrbWBWIj8eV+hquBkCAV6jCwenQYA=="],
-
-    "@vozka/core/oblaka-iac/dprint": ["dprint@0.52.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.52.0", "@dprint/darwin-x64": "0.52.0", "@dprint/linux-arm64-glibc": "0.52.0", "@dprint/linux-arm64-musl": "0.52.0", "@dprint/linux-loong64-glibc": "0.52.0", "@dprint/linux-loong64-musl": "0.52.0", "@dprint/linux-riscv64-glibc": "0.52.0", "@dprint/linux-x64-glibc": "0.52.0", "@dprint/linux-x64-musl": "0.52.0", "@dprint/win32-arm64": "0.52.0", "@dprint/win32-x64": "0.52.0" }, "bin": { "dprint": "bin.js" } }, "sha512-qXf3B6/G4E6SJKngfo7a0z1ja21o/JJ55cF8xyhyIqvJGrpJ96vhXLr37RrbWBWIj8eV+hquBkCAV6jCwenQYA=="],
-
-    "@vozka/core/oblaka-iac/dprint": ["dprint@0.52.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.52.0", "@dprint/darwin-x64": "0.52.0", "@dprint/linux-arm64-glibc": "0.52.0", "@dprint/linux-arm64-musl": "0.52.0", "@dprint/linux-loong64-glibc": "0.52.0", "@dprint/linux-loong64-musl": "0.52.0", "@dprint/linux-riscv64-glibc": "0.52.0", "@dprint/linux-x64-glibc": "0.52.0", "@dprint/linux-x64-musl": "0.52.0", "@dprint/win32-arm64": "0.52.0", "@dprint/win32-x64": "0.52.0" }, "bin": { "dprint": "bin.js" } }, "sha512-qXf3B6/G4E6SJKngfo7a0z1ja21o/JJ55cF8xyhyIqvJGrpJ96vhXLr37RrbWBWIj8eV+hquBkCAV6jCwenQYA=="],
-
-    "@vozka/worker/oblaka-iac/dprint": ["dprint@0.52.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.52.0", "@dprint/darwin-x64": "0.52.0", "@dprint/linux-arm64-glibc": "0.52.0", "@dprint/linux-arm64-musl": "0.52.0", "@dprint/linux-loong64-glibc": "0.52.0", "@dprint/linux-loong64-musl": "0.52.0", "@dprint/linux-riscv64-glibc": "0.52.0", "@dprint/linux-x64-glibc": "0.52.0", "@dprint/linux-x64-musl": "0.52.0", "@dprint/win32-arm64": "0.52.0", "@dprint/win32-x64": "0.52.0" }, "bin": { "dprint": "bin.js" } }, "sha512-qXf3B6/G4E6SJKngfo7a0z1ja21o/JJ55cF8xyhyIqvJGrpJ96vhXLr37RrbWBWIj8eV+hquBkCAV6jCwenQYA=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/darwin-arm64": ["@dprint/darwin-arm64@0.52.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HHpmHCeFw1V9qUU0pJrz7LihrMgQJ5DOejfI3GRCJOd2ue3Api3/ZrzNSIqUbnx/j0RT5c7zxZR5aTE0RHwRFQ=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/darwin-x64": ["@dprint/darwin-x64@0.52.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZuoYH/hyzFhwwFUmykkm1QvLk9u7zxpKL6M8r1fY+lINucujIoGZxW1PjRbbIXaST6nDLbQB21P7LyNncAByOg=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-arm64-glibc": ["@dprint/linux-arm64-glibc@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-waghQcB32CLMuCxnVRQktc7U1S2qsL4spUmvCMyu4ufhZqXf4rQn07L1NcSmQOap40q9Db8ZBmLHfHm1Kab6uA=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-arm64-musl": ["@dprint/linux-arm64-musl@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-8ml2DmF8i7eEou1G5nqgMMhRir89Fsd9cMLZRPZN/FSw6Nc3vAhk2MqZIrYk2DGfoWts7jis6XvEu3/TwMP8fw=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-loong64-glibc": ["@dprint/linux-loong64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-tKj7Bwtcf/zNa1onoshYfQ8CaYz0N6BRYKsovop1H1d2dsRBYAKkR/FvTaPRJp1+Sx7Lc0RjRllFezkhLMRxPw=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-loong64-musl": ["@dprint/linux-loong64-musl@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-8X+ICN/Pc4B+Zog2UXNDJph5uKLf0VVUItYEQbdbwqsWGzPa27Kqri5ainlFzaDs5TFkJHQKQlphg+TLyxBQ7A=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-riscv64-glibc": ["@dprint/linux-riscv64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-uQb2VqSnznfZHhrAKLxpjXMc7/c3AYepllVUhcGCdrTVp1fb7inHEilT2wSXUjOipBbfPG33cZWRzAgc5/Effg=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-x64-glibc": ["@dprint/linux-x64-glibc@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Yh3fZYUcHmII+swTUh0qgf0lEPrz4+7v3tq+vqXR8/xa3Sx8QH5MQJsJDw8Ll1mmKX5HrkBNxA5rC1lIDuFn9g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-x64-musl": ["@dprint/linux-x64-musl@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-zdcgL6+PRjyZ4HVll9DuIn2ZnnxKuU0cwXtpfUZNdy+xRh1+OedUY5aZQRDN4163vkLxV9znXQT/TS0+giph1g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/win32-arm64": ["@dprint/win32-arm64@0.52.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQGhSbl2pcnU4Tl3xXJSPRi1smfIIf7XhVwzNOG7vcSExfcK8yYrrCS3z4VImYKqhI1kvv6gSfnIligtoyaX/g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/win32-x64": ["@dprint/win32-x64@0.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Bi4kW6z9eVtRdNSztSvjjYET4SQzX/OYqsexVyppxv24m5RNOG1h+c9F5MFJpYy9LqQBAKHOQfkzQwPrdgNOXQ=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/darwin-arm64": ["@dprint/darwin-arm64@0.52.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HHpmHCeFw1V9qUU0pJrz7LihrMgQJ5DOejfI3GRCJOd2ue3Api3/ZrzNSIqUbnx/j0RT5c7zxZR5aTE0RHwRFQ=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/darwin-x64": ["@dprint/darwin-x64@0.52.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZuoYH/hyzFhwwFUmykkm1QvLk9u7zxpKL6M8r1fY+lINucujIoGZxW1PjRbbIXaST6nDLbQB21P7LyNncAByOg=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-arm64-glibc": ["@dprint/linux-arm64-glibc@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-waghQcB32CLMuCxnVRQktc7U1S2qsL4spUmvCMyu4ufhZqXf4rQn07L1NcSmQOap40q9Db8ZBmLHfHm1Kab6uA=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-arm64-musl": ["@dprint/linux-arm64-musl@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-8ml2DmF8i7eEou1G5nqgMMhRir89Fsd9cMLZRPZN/FSw6Nc3vAhk2MqZIrYk2DGfoWts7jis6XvEu3/TwMP8fw=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-loong64-glibc": ["@dprint/linux-loong64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-tKj7Bwtcf/zNa1onoshYfQ8CaYz0N6BRYKsovop1H1d2dsRBYAKkR/FvTaPRJp1+Sx7Lc0RjRllFezkhLMRxPw=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-loong64-musl": ["@dprint/linux-loong64-musl@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-8X+ICN/Pc4B+Zog2UXNDJph5uKLf0VVUItYEQbdbwqsWGzPa27Kqri5ainlFzaDs5TFkJHQKQlphg+TLyxBQ7A=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-riscv64-glibc": ["@dprint/linux-riscv64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-uQb2VqSnznfZHhrAKLxpjXMc7/c3AYepllVUhcGCdrTVp1fb7inHEilT2wSXUjOipBbfPG33cZWRzAgc5/Effg=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-x64-glibc": ["@dprint/linux-x64-glibc@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Yh3fZYUcHmII+swTUh0qgf0lEPrz4+7v3tq+vqXR8/xa3Sx8QH5MQJsJDw8Ll1mmKX5HrkBNxA5rC1lIDuFn9g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/linux-x64-musl": ["@dprint/linux-x64-musl@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-zdcgL6+PRjyZ4HVll9DuIn2ZnnxKuU0cwXtpfUZNdy+xRh1+OedUY5aZQRDN4163vkLxV9znXQT/TS0+giph1g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/win32-arm64": ["@dprint/win32-arm64@0.52.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQGhSbl2pcnU4Tl3xXJSPRi1smfIIf7XhVwzNOG7vcSExfcK8yYrrCS3z4VImYKqhI1kvv6gSfnIligtoyaX/g=="],
-
-    "@vozka/config/oblaka-iac/dprint/@dprint/win32-x64": ["@dprint/win32-x64@0.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Bi4kW6z9eVtRdNSztSvjjYET4SQzX/OYqsexVyppxv24m5RNOG1h+c9F5MFJpYy9LqQBAKHOQfkzQwPrdgNOXQ=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/darwin-arm64": ["@dprint/darwin-arm64@0.52.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HHpmHCeFw1V9qUU0pJrz7LihrMgQJ5DOejfI3GRCJOd2ue3Api3/ZrzNSIqUbnx/j0RT5c7zxZR5aTE0RHwRFQ=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/darwin-x64": ["@dprint/darwin-x64@0.52.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZuoYH/hyzFhwwFUmykkm1QvLk9u7zxpKL6M8r1fY+lINucujIoGZxW1PjRbbIXaST6nDLbQB21P7LyNncAByOg=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-arm64-glibc": ["@dprint/linux-arm64-glibc@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-waghQcB32CLMuCxnVRQktc7U1S2qsL4spUmvCMyu4ufhZqXf4rQn07L1NcSmQOap40q9Db8ZBmLHfHm1Kab6uA=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-arm64-musl": ["@dprint/linux-arm64-musl@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-8ml2DmF8i7eEou1G5nqgMMhRir89Fsd9cMLZRPZN/FSw6Nc3vAhk2MqZIrYk2DGfoWts7jis6XvEu3/TwMP8fw=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-loong64-glibc": ["@dprint/linux-loong64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-tKj7Bwtcf/zNa1onoshYfQ8CaYz0N6BRYKsovop1H1d2dsRBYAKkR/FvTaPRJp1+Sx7Lc0RjRllFezkhLMRxPw=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-loong64-musl": ["@dprint/linux-loong64-musl@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-8X+ICN/Pc4B+Zog2UXNDJph5uKLf0VVUItYEQbdbwqsWGzPa27Kqri5ainlFzaDs5TFkJHQKQlphg+TLyxBQ7A=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-riscv64-glibc": ["@dprint/linux-riscv64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-uQb2VqSnznfZHhrAKLxpjXMc7/c3AYepllVUhcGCdrTVp1fb7inHEilT2wSXUjOipBbfPG33cZWRzAgc5/Effg=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-x64-glibc": ["@dprint/linux-x64-glibc@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Yh3fZYUcHmII+swTUh0qgf0lEPrz4+7v3tq+vqXR8/xa3Sx8QH5MQJsJDw8Ll1mmKX5HrkBNxA5rC1lIDuFn9g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-x64-musl": ["@dprint/linux-x64-musl@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-zdcgL6+PRjyZ4HVll9DuIn2ZnnxKuU0cwXtpfUZNdy+xRh1+OedUY5aZQRDN4163vkLxV9znXQT/TS0+giph1g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/win32-arm64": ["@dprint/win32-arm64@0.52.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQGhSbl2pcnU4Tl3xXJSPRi1smfIIf7XhVwzNOG7vcSExfcK8yYrrCS3z4VImYKqhI1kvv6gSfnIligtoyaX/g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/win32-x64": ["@dprint/win32-x64@0.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Bi4kW6z9eVtRdNSztSvjjYET4SQzX/OYqsexVyppxv24m5RNOG1h+c9F5MFJpYy9LqQBAKHOQfkzQwPrdgNOXQ=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/darwin-arm64": ["@dprint/darwin-arm64@0.52.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HHpmHCeFw1V9qUU0pJrz7LihrMgQJ5DOejfI3GRCJOd2ue3Api3/ZrzNSIqUbnx/j0RT5c7zxZR5aTE0RHwRFQ=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/darwin-x64": ["@dprint/darwin-x64@0.52.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZuoYH/hyzFhwwFUmykkm1QvLk9u7zxpKL6M8r1fY+lINucujIoGZxW1PjRbbIXaST6nDLbQB21P7LyNncAByOg=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-arm64-glibc": ["@dprint/linux-arm64-glibc@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-waghQcB32CLMuCxnVRQktc7U1S2qsL4spUmvCMyu4ufhZqXf4rQn07L1NcSmQOap40q9Db8ZBmLHfHm1Kab6uA=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-arm64-musl": ["@dprint/linux-arm64-musl@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-8ml2DmF8i7eEou1G5nqgMMhRir89Fsd9cMLZRPZN/FSw6Nc3vAhk2MqZIrYk2DGfoWts7jis6XvEu3/TwMP8fw=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-loong64-glibc": ["@dprint/linux-loong64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-tKj7Bwtcf/zNa1onoshYfQ8CaYz0N6BRYKsovop1H1d2dsRBYAKkR/FvTaPRJp1+Sx7Lc0RjRllFezkhLMRxPw=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-loong64-musl": ["@dprint/linux-loong64-musl@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-8X+ICN/Pc4B+Zog2UXNDJph5uKLf0VVUItYEQbdbwqsWGzPa27Kqri5ainlFzaDs5TFkJHQKQlphg+TLyxBQ7A=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-riscv64-glibc": ["@dprint/linux-riscv64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-uQb2VqSnznfZHhrAKLxpjXMc7/c3AYepllVUhcGCdrTVp1fb7inHEilT2wSXUjOipBbfPG33cZWRzAgc5/Effg=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-x64-glibc": ["@dprint/linux-x64-glibc@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Yh3fZYUcHmII+swTUh0qgf0lEPrz4+7v3tq+vqXR8/xa3Sx8QH5MQJsJDw8Ll1mmKX5HrkBNxA5rC1lIDuFn9g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/linux-x64-musl": ["@dprint/linux-x64-musl@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-zdcgL6+PRjyZ4HVll9DuIn2ZnnxKuU0cwXtpfUZNdy+xRh1+OedUY5aZQRDN4163vkLxV9znXQT/TS0+giph1g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/win32-arm64": ["@dprint/win32-arm64@0.52.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQGhSbl2pcnU4Tl3xXJSPRi1smfIIf7XhVwzNOG7vcSExfcK8yYrrCS3z4VImYKqhI1kvv6gSfnIligtoyaX/g=="],
-
-    "@vozka/core/oblaka-iac/dprint/@dprint/win32-x64": ["@dprint/win32-x64@0.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Bi4kW6z9eVtRdNSztSvjjYET4SQzX/OYqsexVyppxv24m5RNOG1h+c9F5MFJpYy9LqQBAKHOQfkzQwPrdgNOXQ=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/darwin-arm64": ["@dprint/darwin-arm64@0.52.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HHpmHCeFw1V9qUU0pJrz7LihrMgQJ5DOejfI3GRCJOd2ue3Api3/ZrzNSIqUbnx/j0RT5c7zxZR5aTE0RHwRFQ=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/darwin-x64": ["@dprint/darwin-x64@0.52.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZuoYH/hyzFhwwFUmykkm1QvLk9u7zxpKL6M8r1fY+lINucujIoGZxW1PjRbbIXaST6nDLbQB21P7LyNncAByOg=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-arm64-glibc": ["@dprint/linux-arm64-glibc@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-waghQcB32CLMuCxnVRQktc7U1S2qsL4spUmvCMyu4ufhZqXf4rQn07L1NcSmQOap40q9Db8ZBmLHfHm1Kab6uA=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-arm64-musl": ["@dprint/linux-arm64-musl@0.52.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-8ml2DmF8i7eEou1G5nqgMMhRir89Fsd9cMLZRPZN/FSw6Nc3vAhk2MqZIrYk2DGfoWts7jis6XvEu3/TwMP8fw=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-loong64-glibc": ["@dprint/linux-loong64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-tKj7Bwtcf/zNa1onoshYfQ8CaYz0N6BRYKsovop1H1d2dsRBYAKkR/FvTaPRJp1+Sx7Lc0RjRllFezkhLMRxPw=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-loong64-musl": ["@dprint/linux-loong64-musl@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-8X+ICN/Pc4B+Zog2UXNDJph5uKLf0VVUItYEQbdbwqsWGzPa27Kqri5ainlFzaDs5TFkJHQKQlphg+TLyxBQ7A=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-riscv64-glibc": ["@dprint/linux-riscv64-glibc@0.52.0", "", { "os": "linux", "cpu": "none" }, "sha512-uQb2VqSnznfZHhrAKLxpjXMc7/c3AYepllVUhcGCdrTVp1fb7inHEilT2wSXUjOipBbfPG33cZWRzAgc5/Effg=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-x64-glibc": ["@dprint/linux-x64-glibc@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Yh3fZYUcHmII+swTUh0qgf0lEPrz4+7v3tq+vqXR8/xa3Sx8QH5MQJsJDw8Ll1mmKX5HrkBNxA5rC1lIDuFn9g=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/linux-x64-musl": ["@dprint/linux-x64-musl@0.52.0", "", { "os": "linux", "cpu": "x64" }, "sha512-zdcgL6+PRjyZ4HVll9DuIn2ZnnxKuU0cwXtpfUZNdy+xRh1+OedUY5aZQRDN4163vkLxV9znXQT/TS0+giph1g=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/win32-arm64": ["@dprint/win32-arm64@0.52.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQGhSbl2pcnU4Tl3xXJSPRi1smfIIf7XhVwzNOG7vcSExfcK8yYrrCS3z4VImYKqhI1kvv6gSfnIligtoyaX/g=="],
-
-    "@vozka/worker/oblaka-iac/dprint/@dprint/win32-x64": ["@dprint/win32-x64@0.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Bi4kW6z9eVtRdNSztSvjjYET4SQzX/OYqsexVyppxv24m5RNOG1h+c9F5MFJpYy9LqQBAKHOQfkzQwPrdgNOXQ=="],
   }
 }
