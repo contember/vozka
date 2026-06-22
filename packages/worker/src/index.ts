@@ -11,7 +11,17 @@ import { VaultSecretResolver } from './secret-resolver'
 import { Vault } from './vault'
 import { handleWebhook } from './webhook'
 
+export { DeployLock } from './DeployLock'
 export { RunnerContainer } from './RunnerContainer'
+
+/**
+ * How long a deploy may hold its per-app-env lock before it's treated as stale and auto-released. A
+ * deploy (clone + install + wrangler + reconcile) finishes well inside this; the runner container is
+ * hard-killed ~15 min anyway. The lease self-heals after this if a consumer dies without releasing.
+ */
+const DEPLOY_LOCK_TTL_MS = 30 * 60 * 1000
+/** Delay before a deferred run (another deploy of the same app-env in flight) is re-checked. */
+const DEPLOY_LOCK_REQUEUE_DELAY_S = 30
 
 /**
  * The vozka control-plane Worker — a single `WorkerEntrypoint` carrying:
@@ -98,7 +108,13 @@ export class Vozka extends WorkerEntrypoint<Env> {
 		const deps = await this.runDeps()
 		for (const message of batch.messages) {
 			try {
-				await executeDeploy(deps, message.body)
+				const result = await executeDeploy(deps, message.body)
+				if (result.status === 'deferred') {
+					// Another deploy of this app-env is in flight. Re-enqueue as a FRESH delivery (so the
+					// retry budget stays reserved for genuine errors) with a short delay; the run stays
+					// pending and runs once the lock frees. Then ack this message.
+					await this.env.DEPLOY_QUEUE.send(message.body, { delaySeconds: DEPLOY_LOCK_REQUEUE_DELAY_S })
+				}
 				message.ack()
 			} catch (err) {
 				// executeDeploy already records assembly/relay failures as a `failed` run and does not
@@ -133,6 +149,11 @@ export class Vozka extends WorkerEntrypoint<Env> {
 				},
 			}),
 			startRun,
+			// Per-app-env mutual exclusion, backed by the DeployLock DO (one instance per `<app>:<env>`).
+			lock: {
+				acquire: (key, holder) => this.env.DEPLOY_LOCK.get(this.env.DEPLOY_LOCK.idFromName(key)).acquire(holder, DEPLOY_LOCK_TTL_MS),
+				release: (key, holder) => this.env.DEPLOY_LOCK.get(this.env.DEPLOY_LOCK.idFromName(key)).release(holder),
+			},
 			// vozka's build-time platform deploy config: the single CF account/token + propustka coords,
 			// injected into every job (single-account — no per-account registry). Empty creds fail the run
 			// loudly in assembleJob rather than deploying empty. Optional propustka coords are omitted when

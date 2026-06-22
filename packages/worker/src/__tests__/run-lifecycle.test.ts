@@ -6,6 +6,7 @@ import { FakeRepoSource } from '../repo-source'
 import { assembleJob, type DeployJobMessage, executeDeploy, type RunDeps, type RunOutcome } from '../run-lifecycle'
 import { EnvSecretResolver } from '../secret-resolver'
 import { createHarness } from './helpers/harness'
+import { makeFakeLock } from './helpers/lock'
 
 // The run lifecycle is the testable core of the queue consumer. These tests drive it with a
 // FakeRepoSource, a fake SecretResolver, and a fake startRun — no Cloudflare, no container — covering
@@ -32,20 +33,25 @@ async function seedRun(db: Db, options: { dryRun?: boolean; commitSha?: string }
 	return { runId }
 }
 
-/** Build deps with a recording fake startRun returning the given terminal outcome. */
-function makeDeps(db: Db, outcome: RunOutcome): { deps: RunDeps; jobs: RunnerJob[] } {
+/** Build deps with a recording fake startRun returning the given terminal outcome + an in-memory lock. */
+function makeDeps(
+	db: Db,
+	outcome: RunOutcome,
+	lock = makeFakeLock(),
+): { deps: RunDeps; jobs: RunnerJob[]; lock: ReturnType<typeof makeFakeLock> } {
 	const jobs: RunnerJob[] = []
 	const deps: RunDeps = {
 		db,
 		repoSource: new FakeRepoSource(),
 		secrets: new EnvSecretResolver({}),
 		deploy: DEPLOY,
+		lock,
 		startRun: (job) => {
 			jobs.push(job)
 			return Promise.resolve(outcome)
 		},
 	}
-	return { deps, jobs }
+	return { deps, jobs, lock }
 }
 
 describe('assembleJob', () => {
@@ -58,7 +64,7 @@ describe('assembleJob', () => {
 		const secrets = new EnvSecretResolver({})
 
 		const job = await assembleJob(
-			{ db, repoSource: new FakeRepoSource(), secrets, deploy: DEPLOY, startRun: () => Promise.reject(new Error('unused')) },
+			{ db, repoSource: new FakeRepoSource(), secrets, deploy: DEPLOY, lock: makeFakeLock(), startRun: () => Promise.reject(new Error('unused')) },
 			run!,
 			app!,
 			appEnv!,
@@ -87,7 +93,14 @@ describe('assembleJob', () => {
 		const app = await db.getApp('app')
 		const appEnv = await db.getAppEnv('app', 'prod')
 		const job = await assembleJob(
-			{ db, repoSource: new FakeRepoSource(), secrets: new EnvSecretResolver({}), deploy: DEPLOY, startRun: () => Promise.reject(new Error('x')) },
+			{
+				db,
+				repoSource: new FakeRepoSource(),
+				secrets: new EnvSecretResolver({}),
+				deploy: DEPLOY,
+				lock: makeFakeLock(),
+				startRun: () => Promise.reject(new Error('x')),
+			},
 			run!,
 			app!,
 			appEnv!,
@@ -105,7 +118,14 @@ describe('assembleJob', () => {
 		const emptyDeploy = { ...DEPLOY, cloudflareApiToken: '' }
 		await expect(
 			assembleJob(
-				{ db, repoSource: new FakeRepoSource(), secrets: new EnvSecretResolver({}), deploy: emptyDeploy, startRun: () => Promise.reject(new Error('x')) },
+				{
+					db,
+					repoSource: new FakeRepoSource(),
+					secrets: new EnvSecretResolver({}),
+					deploy: emptyDeploy,
+					lock: makeFakeLock(),
+					startRun: () => Promise.reject(new Error('x')),
+				},
 				run!,
 				app!,
 				appEnv!,
@@ -129,6 +149,7 @@ describe('assembleJob', () => {
 				repoSource: new FakeRepoSource({ fakeToken: 'ghs-installtok' }),
 				secrets: new EnvSecretResolver({}),
 				deploy: DEPLOY,
+				lock: makeFakeLock(),
 				startRun: () => Promise.reject(new Error('x')),
 			},
 			run!,
@@ -216,5 +237,64 @@ describe('executeDeploy (run-row state transitions)', () => {
 		const message: DeployJobMessage = { runId, dryRun: true }
 		await executeDeploy(deps, message)
 		expect(jobs[0]?.dryRun).toBe(true)
+	})
+})
+
+describe('executeDeploy (per-app-env deploy lock)', () => {
+	test('takes the app-env lock, runs, then releases it on success', async () => {
+		const { db } = createHarness()
+		const { runId } = await seedRun(db)
+		const { deps, lock } = makeDeps(db, { status: { state: 'succeeded', exitCode: 0 } })
+
+		const result = await executeDeploy(deps, { runId })
+
+		expect(result.status).toBe('succeeded')
+		expect(lock.held.size).toBe(0) // released
+	})
+
+	test('releases the app-env lock after a failed run', async () => {
+		const { db } = createHarness()
+		const { runId } = await seedRun(db)
+		const { deps, lock } = makeDeps(db, { status: { state: 'failed', exitCode: 1 } })
+
+		await executeDeploy(deps, { runId })
+
+		expect(lock.held.size).toBe(0)
+	})
+
+	test('defers (leaves the run pending, never starts) when another deploy holds the app-env lock', async () => {
+		const { db } = createHarness()
+		const { runId } = await seedRun(db)
+		const lock = makeFakeLock()
+		// A concurrent deploy of the SAME app-env already holds the lock.
+		await lock.acquire('app:prod', 'other-run')
+		const { deps, jobs } = makeDeps(db, { status: { state: 'succeeded', exitCode: 0 } }, lock)
+
+		const result = await executeDeploy(deps, { runId })
+
+		expect(result.status).toBe('deferred')
+		expect(jobs).toHaveLength(0) // never started the job
+		const run = await db.getRun(runId)
+		expect(run?.status).toBe('pending') // still pending — the consumer re-enqueues it
+		// The other deploy's lease is untouched (non-reentrant acquire; no steal, no release).
+		expect(lock.held.get('app:prod')).toBe('other-run')
+	})
+
+	test('a deferred run proceeds once the lock frees (the re-enqueue path)', async () => {
+		const { db } = createHarness()
+		const { runId } = await seedRun(db)
+		const lock = makeFakeLock()
+		await lock.acquire('app:prod', 'other-run')
+		const { deps, jobs } = makeDeps(db, { status: { state: 'succeeded', exitCode: 0 } }, lock)
+
+		// First delivery defers (lock held by the other deploy)…
+		expect((await executeDeploy(deps, { runId })).status).toBe('deferred')
+		// …the other deploy finishes and frees the slot…
+		await lock.release('app:prod', 'other-run')
+		// …and the re-delivered message now runs to completion.
+		const result = await executeDeploy(deps, { runId })
+		expect(result.status).toBe('succeeded')
+		expect(jobs).toHaveLength(1)
+		expect(lock.held.size).toBe(0)
 	})
 })

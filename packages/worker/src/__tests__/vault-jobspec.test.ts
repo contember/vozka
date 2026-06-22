@@ -7,6 +7,7 @@ import { assembleJob, executeDeploy, type RunDeps, type RunOutcome } from '../ru
 import { VaultSecretResolver } from '../secret-resolver'
 import { Vault } from '../vault'
 import { createHarness } from './helpers/harness'
+import { makeFakeLock } from './helpers/lock'
 
 // End-to-end per-app secret injection through the vault: JobSpec assembly resolves every app secret
 // through the encrypted vault (a real local D1 + a test master key), while the platform creds (CF
@@ -36,6 +37,7 @@ function makeDeps(db: Db, vault: Vault, outcome: RunOutcome): { deps: RunDeps; j
 		repoSource: new FakeRepoSource(),
 		secrets: new VaultSecretResolver({ vault }),
 		deploy: DEPLOY,
+		lock: makeFakeLock(),
 		startRun: (job) => {
 			jobs.push(job)
 			return Promise.resolve(outcome)
@@ -70,6 +72,7 @@ describe('JobSpec assembly through the vault', () => {
 				repoSource: new FakeRepoSource(),
 				secrets: new VaultSecretResolver({ vault }),
 				deploy: DEPLOY,
+				lock: makeFakeLock(),
 				startRun: () => Promise.reject(new Error('unused')),
 			},
 			run!,

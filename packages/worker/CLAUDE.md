@@ -41,6 +41,11 @@ logs→R2 + status→D1. Env/bindings shape: `src/env.ts`. Schema: `migrations/*
   `accounts` registry table; WHETHER a deploy reconciles is decided by the app's config (`access`/`schema`).
 - **Run lifecycle is status-guarded + idempotent** (`src/run-lifecycle.ts`): `markRunStarted` only moves
   pending→running, so a redelivered queue message is a no-op. ack handled runs; retry only on an unexpected throw.
+- **Per-app-env deploy lock** (`src/DeployLock.ts`, a DO; one instance per `<app>:<env>`): `executeDeploy`
+  takes it before starting and releases it in `finally`, so two triggers can't deploy the same target
+  concurrently (race on cf-state / wrangler / propustka). A contended run returns `deferred` — left `pending`
+  and re-enqueued by the consumer with a delay (a fresh delivery, so the retry budget is preserved). The
+  lease is non-reentrant + TTL-bounded (self-heals if a consumer dies) + holder-checked on release.
 - **Never log a secret/credential** (see root). The run row is written before the queue is touched (durable trigger).
 - **`vozka.config.ts` is the source of truth** for vozka's own resources; keep `oblaka.ts` a thin shim (see root).
 

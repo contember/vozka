@@ -12,7 +12,7 @@
 // NAME in `pipeline.secrets` and provisioned out-of-band (`wrangler secret put` / `.dev.vars`).
 
 import type { AppAccess, AppSchema, ResourceContext } from '@vozka/config'
-import { Container, D1Database, defineApp, Queue, R2Bucket, ServiceReference, Worker } from '@vozka/config'
+import { Container, D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from '@vozka/config'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from './src/actions'
 
 /** Container instance type per stage — dev locally, larger off-local; any other env → basic. */
@@ -80,6 +80,10 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 				maxInstances: env === 'prod' ? 10 : 3,
 				instanceType,
 			}),
+			// Per-app-env deploy lock — serializes deploys of the same (app, env) so two triggers can't
+			// race on cf-state / wrangler / propustka. DO class in src/DeployLock.ts, re-exported from the
+			// Worker entry (src/index.ts) so wrangler finds it.
+			DEPLOY_LOCK: new DurableObject({ name: 'vozka-deploy-lock', className: 'DeployLock' }),
 			// Run logs + terminal status, keyed by run id (runs/<id>/logs.ndjson, runs/<id>/status.json).
 			RUN_LOGS: new R2Bucket({ name: 'vozka-run-logs' }),
 			// Registry + run history. D1 is region-specific → pinned to EU West. Migrations in ./migrations.

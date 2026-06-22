@@ -5,6 +5,7 @@
  * service binding, and the GitHub App + secret-resolver inputs.
  */
 import type { IamRpc } from '@propustka/client'
+import type { DeployLock } from './DeployLock'
 import type { DeployJobMessage } from './run-lifecycle'
 import type { RunnerContainer } from './RunnerContainer'
 
@@ -13,6 +14,8 @@ export interface Env {
 	ASSETS: Fetcher
 	/** Per-run deploy-runner container, backed by a Durable Object. */
 	RUNNER: DurableObjectNamespace<RunnerContainer>
+	/** Per-app-env deploy lock (one DO instance per `<app>:<env>`) — serializes deploys of one target. */
+	DEPLOY_LOCK: DurableObjectNamespace<DeployLock>
 	/** R2 bucket the relay writes run logs + terminal status into, keyed by run id. */
 	RUN_LOGS: R2Bucket
 	/** Registry (accounts/apps/app_envs/app_secrets) + run history. See migrations/0001_init.sql. */

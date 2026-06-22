@@ -50,12 +50,26 @@ export interface DeployConfig {
 	propustkaClientSecret?: string
 }
 
+/**
+ * The per-app-env deploy lock seam (backed by the DeployLock DO, src/DeployLock.ts). `executeDeploy`
+ * takes the lock for `<app>:<env>` before starting a run and releases it after, so the same target never
+ * deploys twice concurrently. Injected so the lifecycle stays unit-testable with an in-memory fake.
+ */
+export interface DeployLockGate {
+	/** Take the lock for `key`, held by `holder` (the run id). False when another run holds it. */
+	acquire(key: string, holder: string): Promise<boolean>
+	/** Release the lock for `key` if `holder` still owns it (idempotent). */
+	release(key: string, holder: string): Promise<void>
+}
+
 /** Everything the lifecycle needs, injected so the core is pure + testable. */
 export interface RunDeps {
 	db: Db
 	repoSource: RepoSource
 	secrets: SecretResolver
 	startRun: StartRun
+	/** Per-app-env mutual exclusion so two triggers can't deploy the same target concurrently. */
+	lock: DeployLockGate
 	/** vozka's own platform deploy config (CF account/token + propustka coords), build-time. */
 	deploy: DeployConfig
 }
@@ -125,20 +139,35 @@ export interface DeployJobMessage {
 export async function executeDeploy(
 	deps: RunDeps,
 	message: DeployJobMessage,
-): Promise<{ runId: string; status: 'running' | 'succeeded' | 'failed' | 'skipped' }> {
+): Promise<{ runId: string; status: 'running' | 'succeeded' | 'failed' | 'skipped' | 'deferred' }> {
 	const run = await deps.db.getRun(message.runId)
 	if (run === null) {
 		// The row was deleted (e.g. its app was removed) — nothing to do; ack the message.
 		return { runId: message.runId, status: 'skipped' }
 	}
-	// Status guard: only a still-pending run is started. A redelivered message for an already-running
-	// or terminal run is a no-op (idempotent consumer).
-	const started = await deps.db.markRunStarted(run.id, logsKey(run.id))
-	if (!started) {
+	// A redelivered message for a run that already left `pending` (running or terminal) is owned by
+	// whichever invocation started it — never touch the lock here (it belongs to that invocation).
+	if (run.status !== 'pending') {
 		return { runId: run.id, status: 'skipped' }
 	}
 
+	// Per-app-env mutual exclusion: take the lock before starting. If another deploy of THIS app-env is
+	// in flight, defer — leave the run `pending` so the consumer re-enqueues it. We don't wait on the
+	// lock (a deploy is long), and we don't spend the queue's retry budget on lock contention.
+	const lockKey = `${run.app_id}:${run.env}`
+	const acquired = await deps.lock.acquire(lockKey, run.id)
+	if (!acquired) {
+		return { runId: run.id, status: 'deferred' }
+	}
+
 	try {
+		// Status guard: pending → running. With the lock held we're the sole starter for this app-env,
+		// so this only fails if the row changed out from under us — treat as a no-op (lock released below).
+		const started = await deps.db.markRunStarted(run.id, logsKey(run.id))
+		if (!started) {
+			return { runId: run.id, status: 'skipped' }
+		}
+
 		const app = await deps.db.getApp(run.app_id)
 		const appEnv = await deps.db.getAppEnv(run.app_id, run.env)
 		if (app === null || appEnv === null) {
@@ -159,6 +188,9 @@ export async function executeDeploy(
 		console.error(`deploy run ${run.id} failed:`, err instanceof Error ? err.message : 'unknown error')
 		await deps.db.markRunFinished(run.id, 'failed', null)
 		return { runId: run.id, status: 'failed' }
+	} finally {
+		// Always free the app-env slot for the next deploy (idempotent — only clears our own lease).
+		await deps.lock.release(lockKey, run.id)
 	}
 }
 
