@@ -1,0 +1,27 @@
+{
+	"name": "@vozka/dashboard",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"gen": "bun scripts/gen.ts",
+		"build": "bun run gen && tsc --noEmit && vite build",
+		"typecheck": "bun run gen && tsc --noEmit",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@buzola/router": "^0.0.12",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@buzola/codegen": "^0.0.12",
+		"@buzola/vite-plugin": "^0.0.12",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^5.0.0",
+		"typescript": "^5.9.3",
+		"vite": "^7.0.0"
+	}
+}
