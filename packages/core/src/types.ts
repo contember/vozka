@@ -42,6 +42,13 @@ export interface DeployContext {
 	secrets: Record<string, string>
 	/** Absolute path the config was loaded from; build + relative paths resolve here. */
 	cwd: string
+	/**
+	 * Plan-only mode. When set, the engine builds the plan, runs oblaka with `dryRun:true` (never
+	 * `remote`), and SKIPS every real Cloudflare/propustka mutation — `wrangler deploy`,
+	 * `wrangler d1 migrations apply`, `wrangler secret put`, and the propustka reconciles — logging
+	 * what it WOULD do instead. This is the only way to exercise the full path without real creds.
+	 */
+	dryRun?: boolean
 }
 
 /**
@@ -52,7 +59,7 @@ export interface JobSpec {
 	/** Stable id of the step within a plan. */
 	id: string
 	/** Coarse kind of work — drives ordering and how the runner reports progress. */
-	kind: 'build' | 'provision-resources' | 'reconcile-access' | 'reconcile-schema' | 'sync-secrets' | 'deploy-worker'
+	kind: 'build' | 'provision-resources' | 'migrate' | 'deploy-worker' | 'reconcile-schema' | 'reconcile-access' | 'sync-secrets'
 	/** Human-readable description for logs / the dashboard. */
 	description: string
 	/** Ids of steps that must complete before this one runs. */

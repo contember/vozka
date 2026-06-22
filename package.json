@@ -5,6 +5,9 @@
 	"workspaces": [
 		"packages/*"
 	],
+	"overrides": {
+		"oblaka-iac": "file:../oblaka"
+	},
 	"scripts": {
 		"typecheck": "bun run --filter '*' typecheck",
 		"test": "bun test",

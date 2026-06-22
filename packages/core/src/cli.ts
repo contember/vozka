@@ -2,28 +2,34 @@
 import type { AppConfig } from '@vozka/config'
 import { resolve } from 'node:path'
 import { deploy } from './deploy'
-import type { DeployContext } from './types'
+import type { DeployContext, DeployResult } from './types'
 
 const USAGE = `vozka — deploy control plane
 
 Usage:
-  vozka deploy --env=<env> [--config=<path>]
+  vozka deploy --env=<env> [--config=<path>] [--dry-run]
 
 Options:
   --env=<env>       Target environment (required), e.g. staging / production.
   --config=<path>   Path to the app config file (default: ./vozka.config.ts).
+  --dry-run         Build + print the plan and walk every step in plan-only mode:
+                    oblaka runs with dryRun (no remote, no writes) and no real
+                    wrangler deploy / secret put / propustka reconcile happens.
   -h, --help        Show this help.
 
 Credentials are read from the environment:
   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (required)
   PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET (optional)
   VOZKA_DOMAIN (optional)
+
+Secrets declared in \`pipeline.secrets\` are read from the environment by name.
 `
 
 interface ParsedArgs {
 	command: string | undefined
 	env: string | undefined
 	config: string
+	dryRun: boolean
 	help: boolean
 }
 
@@ -31,11 +37,14 @@ const parseArgs = (argv: string[]): ParsedArgs => {
 	let command: string | undefined
 	let env: string | undefined
 	let config = './vozka.config.ts'
+	let dryRun = false
 	let help = false
 
 	for (const arg of argv) {
 		if (arg === '-h' || arg === '--help') {
 			help = true
+		} else if (arg === '--dry-run') {
+			dryRun = true
 		} else if (arg.startsWith('--env=')) {
 			env = arg.slice('--env='.length)
 		} else if (arg.startsWith('--config=')) {
@@ -45,7 +54,7 @@ const parseArgs = (argv: string[]): ParsedArgs => {
 		}
 	}
 
-	return { command, env, config, help }
+	return { command, env, config, dryRun, help }
 }
 
 const die = (message: string): never => {
@@ -64,17 +73,18 @@ const isAppConfig = (value: unknown): value is AppConfig => {
 	)
 }
 
-const loadConfig = async (path: string): Promise<AppConfig> => {
+const loadConfig = async (path: string): Promise<{ config: AppConfig; dir: string }> => {
 	const absolute = resolve(process.cwd(), path)
 	const module: { default?: unknown } = await import(absolute)
 	const config = module.default
 	if (!isAppConfig(config)) {
 		return die(`Config at ${absolute} must \`export default defineApp({ ... })\``)
 	}
-	return config
+	// Relative paths (workerDir, build) resolve against the config file's directory, not the cwd.
+	return { config, dir: resolve(absolute, '..') }
 }
 
-const require = (name: string): string => {
+const requireEnv = (name: string): string => {
 	const value = process.env[name]
 	if (value === undefined || value === '') {
 		return die(`Missing ${name} environment variable`)
@@ -82,17 +92,57 @@ const require = (name: string): string => {
 	return value
 }
 
-const buildContext = (env: string): DeployContext => {
+/** Gather each declared secret's value from the environment (by its own name). */
+const gatherSecrets = (config: AppConfig): Record<string, string> => {
+	const secrets: Record<string, string> = {}
+	for (const name of config.pipeline?.secrets ?? []) {
+		const value = process.env[name]
+		if (value !== undefined && value !== '') {
+			secrets[name] = value
+		}
+	}
+	return secrets
+}
+
+const buildContext = (config: AppConfig, env: string, dir: string, dryRun: boolean): DeployContext => {
 	return {
 		env,
 		domain: process.env['VOZKA_DOMAIN'],
-		accountId: require('CLOUDFLARE_ACCOUNT_ID'),
-		apiToken: require('CLOUDFLARE_API_TOKEN'),
+		// Creds are required even in dry-run (oblaka needs them to materialize the resource graph).
+		accountId: requireEnv('CLOUDFLARE_ACCOUNT_ID'),
+		apiToken: requireEnv('CLOUDFLARE_API_TOKEN'),
 		propustkaUrl: process.env['PROPUSTKA_URL'],
 		clientId: process.env['PROPUSTKA_CLIENT_ID'],
 		clientSecret: process.env['PROPUSTKA_CLIENT_SECRET'],
-		secrets: {},
-		cwd: process.cwd(),
+		secrets: gatherSecrets(config),
+		cwd: dir,
+		dryRun,
+	}
+}
+
+const fmtDuration = (step: DeployResult['steps'][number]): string => {
+	if (step.startedAt === undefined || step.finishedAt === undefined) {
+		return ''
+	}
+	return ` (${step.finishedAt - step.startedAt}ms)`
+}
+
+const ICON: Record<string, string> = {
+	pending: '·',
+	running: '…',
+	succeeded: '✓',
+	failed: '✗',
+	skipped: '∅',
+}
+
+const printResult = (result: DeployResult): void => {
+	console.log(`\n${result.appId} → ${result.env}: ${result.status}`)
+	for (const step of result.steps) {
+		const icon = ICON[step.status] ?? '?'
+		console.log(`  ${icon} ${step.spec.id} — ${step.status}${fmtDuration(step)}`)
+		if (step.error !== undefined) {
+			console.log(`      ${step.error}`)
+		}
 	}
 }
 
@@ -110,11 +160,15 @@ const main = async (): Promise<void> => {
 
 	const env = args.env ?? die(`Missing --env=<env>\n\n${USAGE}`)
 
-	const config = await loadConfig(args.config)
-	const ctx = buildContext(env)
+	const { config, dir } = await loadConfig(args.config)
+	const ctx = buildContext(config, env, dir, args.dryRun)
 
 	const result = await deploy(config, ctx)
-	console.log(`Deployed ${result.appId} to ${result.env}: ${result.status}`)
+	printResult(result)
+
+	if (result.status === 'failed') {
+		process.exit(1)
+	}
 }
 
 await main()

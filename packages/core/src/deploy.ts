@@ -1,16 +1,217 @@
 import type { AppConfig } from '@vozka/config'
-import type { DeployContext, DeployResult } from './types'
+import { resolve } from 'node:path'
+import type { Worker } from 'oblaka-iac'
+import { buildPlan, findMigratableDatabases } from './plan'
+import { defaultRuntime, type DeployRuntime } from './runtime'
+import type { DeployContext, DeployResult, DeployStep, JobSpec, RunStatus } from './types'
+
+/** Resolve the absolute directory the Worker source lives in (`pipeline.workerDir` over `cwd`). */
+const workerDir = (config: AppConfig, ctx: DeployContext): string => resolve(ctx.cwd, config.pipeline?.workerDir ?? '.')
+
+/** The cred env every real `wrangler` child needs — oblaka uses the SDK, wrangler reads these. */
+const wranglerEnv = (ctx: DeployContext): Record<string, string> => ({
+	CLOUDFLARE_API_TOKEN: ctx.apiToken,
+	CLOUDFLARE_ACCOUNT_ID: ctx.accountId,
+})
+
+/** Throw a uniform error from a failed shell-out, folding stderr/stdout into the message. */
+const commandError = (label: string, result: { exitCode: number; stdout: string; stderr: string }): Error => {
+	const detail = (result.stderr.trim() || result.stdout.trim() || '(no output)').slice(0, 2000)
+	return new Error(`${label} failed (exit ${result.exitCode}): ${detail}`)
+}
 
 /**
- * Deploy one app to one environment: build the plan from `config` + `ctx`, execute its steps
- * (provision resources via oblaka, reconcile propustka access/schema, sync secrets, deploy the
- * Worker), and return the result.
- *
- * M0: contract only. The engine lands in M1 — until then this is a typed throw so callers and the
- * CLI can be wired and typechecked against the real signature.
+ * Everything one step's executor needs: the config, context, materialized worker graph, its dir,
+ * the runtime, and whether this is a dry-run. Bundled so the per-kind handlers stay small.
  */
-export const deploy = async (config: AppConfig, ctx: DeployContext): Promise<DeployResult> => {
-	void config
-	void ctx
-	throw new Error('deploy: not implemented until M1')
+interface StepEnv {
+	config: AppConfig
+	ctx: DeployContext
+	worker: Worker
+	dir: string
+	runtime: DeployRuntime
+	dryRun: boolean
+}
+
+/** Run one step's effect. Resolves on success, throws on failure (caught + recorded by the loop). */
+const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
+	const { config, ctx, worker, dir, runtime, dryRun } = env
+
+	switch (spec.kind) {
+		case 'build': {
+			const build = config.pipeline?.build
+			if (build === undefined) {
+				return
+			}
+			if (dryRun) {
+				runtime.log(`  [dry-run] would run build: \`${build}\` in ${dir}`)
+				return
+			}
+			const result = await runtime.runCommand({ command: 'sh', args: ['-c', build], cwd: dir })
+			if (result.exitCode !== 0) {
+				throw commandError(`build (\`${build}\`)`, result)
+			}
+			return
+		}
+
+		case 'provision-resources': {
+			// oblaka always runs — in dry-run it provisions in plan-only mode (no remote, no writes),
+			// which still materializes the resource graph + wrangler config so the path is exercised.
+			const result = await runtime.provision({
+				definition: worker,
+				accountId: ctx.accountId,
+				apiToken: ctx.apiToken,
+				env: ctx.env,
+				cwd: dir,
+				dryRun,
+			})
+			const names = result.wranglerConfigs.map((c) => c.config.name ?? '(unnamed)').join(', ')
+			runtime.log(dryRun ? `  [dry-run] provisioned (plan-only): ${names}` : `  provisioned: ${names}`)
+			return
+		}
+
+		case 'migrate': {
+			// `migrate:<binding>` — recover the database from the graph and apply by database name.
+			const binding = spec.id.slice('migrate:'.length)
+			const database = findMigratableDatabases(worker).find((d) => d.binding === binding)
+			if (database === undefined) {
+				throw new Error(`migrate: no migratable D1 database for binding \`${binding}\``)
+			}
+			if (dryRun) {
+				runtime.log(`  [dry-run] would run: wrangler d1 migrations apply ${database.name} --remote`)
+				return
+			}
+			const result = await runtime.runCommand({
+				command: 'wrangler',
+				args: ['d1', 'migrations', 'apply', database.name, '--remote'],
+				cwd: dir,
+				env: wranglerEnv(ctx),
+			})
+			if (result.exitCode !== 0) {
+				throw commandError(`wrangler d1 migrations apply ${database.name}`, result)
+			}
+			return
+		}
+
+		case 'deploy-worker': {
+			if (dryRun) {
+				runtime.log(`  [dry-run] would run: wrangler deploy in ${dir}`)
+				return
+			}
+			const result = await runtime.runCommand({ command: 'wrangler', args: ['deploy'], cwd: dir, env: wranglerEnv(ctx) })
+			if (result.exitCode !== 0) {
+				throw commandError('wrangler deploy', result)
+			}
+			return
+		}
+
+		case 'reconcile-schema': {
+			const schema = config.schema
+			const propustkaUrl = ctx.propustkaUrl
+			if (schema === undefined || propustkaUrl === undefined) {
+				return
+			}
+			if (dryRun) {
+				runtime.log(`  [dry-run] would reconcile schema for \`${config.id}\` against ${propustkaUrl}`)
+				return
+			}
+			await runtime.reconcileSchema({ url: propustkaUrl, app: config.id, schema, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			return
+		}
+
+		case 'reconcile-access': {
+			const access = config.access
+			const propustkaUrl = ctx.propustkaUrl
+			if (access === undefined || propustkaUrl === undefined) {
+				return
+			}
+			if (dryRun) {
+				runtime.log(`  [dry-run] would reconcile Access rules for \`${config.id}\` against ${propustkaUrl}`)
+				return
+			}
+			await runtime.reconcileAccess({ url: propustkaUrl, app: config.id, access, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			return
+		}
+
+		case 'sync-secrets': {
+			const secrets = config.pipeline?.secrets ?? []
+			for (const name of secrets) {
+				const value = ctx.secrets[name]
+				if (value === undefined) {
+					throw new Error(`sync-secrets: missing value for secret \`${name}\` (not in ctx.secrets)`)
+				}
+				if (dryRun) {
+					runtime.log(`  [dry-run] would run: wrangler secret put ${name} (value piped from ctx.secrets)`)
+					continue
+				}
+				const result = await runtime.runCommand({
+					command: 'wrangler',
+					args: ['secret', 'put', name],
+					cwd: dir,
+					env: wranglerEnv(ctx),
+					stdin: value,
+				})
+				if (result.exitCode !== 0) {
+					throw commandError(`wrangler secret put ${name}`, result)
+				}
+			}
+			return
+		}
+	}
+}
+
+/** Roll a list of plan specs into pending `DeployStep`s. */
+const initSteps = (specs: JobSpec[]): DeployStep[] => specs.map((spec) => ({ spec, status: 'pending' as RunStatus }))
+
+/**
+ * Deploy one app to one environment: build the plan from `config` + `ctx`, execute its steps in
+ * order (build, provision via oblaka, D1 migrations, `wrangler deploy`, propustka reconciles, secret
+ * sync), and return the result. Stops on the first failure and marks the rest `skipped`.
+ *
+ * All side effects go through an injectable `DeployRuntime` (default: real Bun spawn + oblaka +
+ * propustka) so this is fully unit-testable and so `ctx.dryRun` can short-circuit every real
+ * Cloudflare/propustka mutation while still exercising the whole path.
+ */
+export const deploy = async (config: AppConfig, ctx: DeployContext, runtime: DeployRuntime = defaultRuntime): Promise<DeployResult> => {
+	const dryRun = ctx.dryRun ?? false
+	const worker = config.resources({ env: ctx.env, domain: ctx.domain })
+	const dir = workerDir(config, ctx)
+	const plan = buildPlan(config, ctx, worker)
+	const steps = initSteps(plan.steps)
+	const stepEnv: StepEnv = { config, ctx, worker, dir, runtime, dryRun }
+
+	runtime.log(`Deploy ${plan.appId} → ${plan.env}${dryRun ? ' (dry-run)' : ''} — ${steps.length} step(s):`)
+	for (const step of steps) {
+		runtime.log(`  • ${step.spec.id} — ${step.spec.description}`)
+	}
+
+	let failed = false
+	for (const step of steps) {
+		if (failed) {
+			step.status = 'skipped'
+			continue
+		}
+
+		step.status = 'running'
+		step.startedAt = Date.now()
+		runtime.log(`→ ${step.spec.id}`)
+		try {
+			await runStep(step.spec, stepEnv)
+			step.status = 'succeeded'
+		} catch (error) {
+			step.status = 'failed'
+			step.error = error instanceof Error ? error.message : String(error)
+			failed = true
+			runtime.log(`✗ ${step.spec.id}: ${step.error}`)
+		}
+		step.finishedAt = Date.now()
+	}
+
+	return {
+		appId: plan.appId,
+		env: plan.env,
+		status: failed ? 'failed' : 'succeeded',
+		plan,
+		steps,
+	}
 }

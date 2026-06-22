@@ -6,7 +6,11 @@
 		// See the note in packages/config/tsconfig.json: `@vozka/core` imports `@vozka/config`, which
 		// re-exports oblaka-iac's raw TS source, so the same one-flag relaxation applies here. Our own
 		// code stays fully strict otherwise.
-		"noUncheckedIndexedAccess": false
+		"noUncheckedIndexedAccess": false,
+		// `deploy()` pulls oblaka's `commands/` source (e.g. `input.ts`) into this program; it reads
+		// `process.env.CLOUDFLARE_*` with dot access, which trips `noPropertyAccessFromIndexSignature`.
+		// Relaxed ONLY to accommodate the dependency's source — our own code uses bracket access.
+		"noPropertyAccessFromIndexSignature": false
 	},
-	"include": ["src/**/*"]
+	"include": ["src/**/*", "fixtures/**/*"]
 }
