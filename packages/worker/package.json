@@ -18,6 +18,7 @@
 	},
 	"dependencies": {
 		"@cloudflare/containers": "^0.0.30",
+		"@propustka/client": "^0.0.5",
 		"@vozka/config": "workspace:*",
 		"@vozka/core": "workspace:*",
 		"@vozka/runner": "workspace:*"
