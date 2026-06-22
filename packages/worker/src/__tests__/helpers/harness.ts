@@ -139,6 +139,8 @@ export interface Harness {
 	sqlite: Database
 	/** The production `Db` over the in-memory sqlite, via the D1 adapter. */
 	db: Db
+	/** The D1-compatible handle over the SAME sqlite — pass to other D1 consumers (e.g. `Vault`). */
+	d1: D1Database
 }
 
 /** Stand up a fresh in-memory DB + Db. Call once per test for isolation. */
@@ -146,8 +148,19 @@ export function createHarness(): Harness {
 	const sqlite = new Database(':memory:')
 	sqlite.exec('PRAGMA foreign_keys = ON')
 	sqlite.exec(migration)
-	const db = new Db(new TestD1Database(sqlite))
-	return { sqlite, db }
+	const d1 = new TestD1Database(sqlite)
+	const db = new Db(d1)
+	return { sqlite, db, d1 }
+}
+
+/**
+ * Read every row of a sqlite query as plain objects (a JSON round-trip keeps it honest without an
+ * `as` cast). Test-only helper for asserting on raw stored rows (e.g. that no plaintext is present).
+ */
+export function queryRows(sqlite: Database, sql: string, ...params: (string | number | null)[]): Record<string, unknown>[] {
+	const rows = sqlite.query(sql).all(...params)
+	const reread: { rows: Record<string, unknown>[] } = JSON.parse(JSON.stringify({ rows }))
+	return reread.rows
 }
 
 // ── HMAC + webhook helpers (sign a body the way GitHub would) ──────────────────

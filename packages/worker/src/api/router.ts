@@ -10,6 +10,7 @@ import { ACTIONS } from '../actions'
 import type { Db } from '../db'
 import { error } from '../http'
 import { appScope, authorize, envScope, type Iam } from '../iam'
+import type { Vault } from '../vault'
 import {
 	createAccount,
 	createApp,
@@ -31,13 +32,28 @@ import {
 	updateApp,
 } from './registry'
 import { type DeployQueue, getRun, getRunLog, listRuns, type R2Reader, type RunsContext, tailRunLog, triggerDeploy } from './runs'
+import {
+	deleteAccountToken,
+	deleteAppSecretValue,
+	rotateAccountToken,
+	rotateAppSecretValue,
+	setAccountToken,
+	setAppSecretValue,
+	type VaultContext,
+} from './vault'
 
-/** Everything the router needs (the Worker assembles this from its bindings). */
+/**
+ * Everything the router needs (the Worker assembles this from its bindings). `vault` is a FACTORY
+ * (async, may need to import the master key) so it's only built when a vault route is hit, and a
+ * missing/invalid `VOZKA_VAULT_KEY` surfaces as a clean 500 on those routes alone — every non-vault
+ * route works without a vault configured.
+ */
 export interface ApiDeps {
 	db: Db
 	iam: Iam
 	queue: DeployQueue
 	logs: R2Reader
+	vault?: () => Promise<Vault>
 }
 
 /**
@@ -56,9 +72,9 @@ export async function handleApi(request: Request, deps: ApiDeps): Promise<Respon
 
 async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Response> {
 	const method = request.method
-	// /api/<resource>/<id>/<sub>/<subId>
+	// /api/<resource>/<id>/<sub>/<subId>/<subSub>
 	const segments = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean)
-	const [resource, id, sub, subId] = segments
+	const [resource, id, sub, subId, subSub] = segments
 
 	const registryCtx = (authorized: Awaited<ReturnType<typeof authorize>>): RegistryContext | Response => {
 		if (!authorized.ok) {
@@ -71,6 +87,23 @@ async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Resp
 			return authorized.response
 		}
 		return { db: deps.db, queue: deps.queue, logs: deps.logs, request, url, authorized }
+	}
+	// Build a vault context (constructs the Vault via the factory; a missing/invalid master key is a
+	// clean 500 here, isolated to vault routes). Returns the error/Response otherwise.
+	const vaultCtx = async (authorized: Awaited<ReturnType<typeof authorize>>): Promise<VaultContext | Response> => {
+		if (!authorized.ok) {
+			return authorized.response
+		}
+		if (deps.vault === undefined) {
+			return error(500, 'vault not configured (VOZKA_VAULT_KEY missing)')
+		}
+		try {
+			const vault = await deps.vault()
+			return { db: deps.db, vault, request, url, authorized }
+		} catch {
+			// Never echo the master-key error detail; a generic message is enough for the client.
+			return error(500, 'vault unavailable (check VOZKA_VAULT_KEY)')
+		}
 	}
 
 	switch (resource) {
@@ -89,6 +122,19 @@ async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Resp
 				}
 				return methodNotAllowed()
 			}
+			// Nested: /api/accounts/:name/token — the CF API token VALUE (secret.manage, global).
+			// The token value lives in the vault; setting/rotating/deleting it is a SECRET operation.
+			// PUT = set, PATCH = rotate in place, DELETE = drop the vault entry. Write-only (no GET).
+			if (sub === 'token') {
+				const a = await authorize(deps.iam, request, ACTIONS.SECRET_MANAGE)
+				const c = await vaultCtx(a)
+				if (c instanceof Response) return c
+				if (method === 'PUT') return setAccountToken(c, id)
+				if (method === 'PATCH') return rotateAccountToken(c, id)
+				if (method === 'DELETE') return deleteAccountToken(c, id)
+				return methodNotAllowed()
+			}
+
 			const a = await authorize(deps.iam, request, ACTIONS.ACCOUNT_MANAGE)
 			const c = registryCtx(a)
 			if (c instanceof Response) return c
@@ -137,6 +183,18 @@ async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Resp
 				return methodNotAllowed()
 			}
 			if (sub === 'secrets') {
+				// /api/apps/:id/secrets/:name/value — the encrypted secret VALUE (vault, write-only).
+				// PUT = set (re-encrypts under a fresh entry), PATCH = rotate in place, DELETE = drop entry.
+				if (subId !== undefined && subSub === 'value') {
+					const a = await authorize(deps.iam, request, ACTIONS.SECRET_MANAGE, appScope(id))
+					const c = await vaultCtx(a)
+					if (c instanceof Response) return c
+					if (method === 'PUT') return setAppSecretValue(c, id, subId)
+					if (method === 'PATCH') return rotateAppSecretValue(c, id, subId)
+					if (method === 'DELETE') return deleteAppSecretValue(c, id, subId)
+					return methodNotAllowed()
+				}
+				// /api/apps/:id/secrets and /api/apps/:id/secrets/:name — the reference rows (registry).
 				const a = await authorize(deps.iam, request, ACTIONS.SECRET_MANAGE, appScope(id))
 				const c = registryCtx(a)
 				if (c instanceof Response) return c

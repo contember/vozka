@@ -2,7 +2,15 @@ import { createPage } from '@buzola/router'
 import { useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Table } from '../../components/Table'
-import { type AccountDto, api, ApiError, type CreateAccountRequest, type ListResponse, type UpdateAccountRequest } from '../../lib/api'
+import {
+	type AccountDto,
+	api,
+	ApiError,
+	type CreateAccountRequest,
+	type ListResponse,
+	type SetSecretValueRequest,
+	type UpdateAccountRequest,
+} from '../../lib/api'
 import { fmtDate } from '../../lib/format'
 
 // Accounts — the Cloudflare accounts an app env deploys to. Each carries a CF account id and a
@@ -48,6 +56,9 @@ export default createPage()
 function AccountRow({ account, onDone }: { account: AccountDto; onDone: () => void }) {
 	const [editing, setEditing] = useState(false)
 	const [confirming, setConfirming] = useState(false)
+	const [settingValue, setSettingValue] = useState(false)
+	/** The token value lives in the vault when the ref has the `vault:` prefix; PATCH rotates in place. */
+	const inVault = account.cfApiTokenRef.startsWith('vault:')
 
 	async function remove() {
 		await api.del(`/accounts/${account.name}`)
@@ -67,6 +78,20 @@ function AccountRow({ account, onDone }: { account: AccountDto; onDone: () => vo
 		)
 	}
 
+	if (settingValue) {
+		return (
+			<SetTokenValueRow
+				account={account}
+				rotate={inVault}
+				onDone={() => {
+					setSettingValue(false)
+					onDone()
+				}}
+				onCancel={() => setSettingValue(false)}
+			/>
+		)
+	}
+
 	return (
 		<tr>
 			<td>
@@ -81,6 +106,7 @@ function AccountRow({ account, onDone }: { account: AccountDto; onDone: () => vo
 			<td>{fmtDate(account.createdAt)}</td>
 			<td className="row-actions">
 				<button type="button" className="small" onClick={() => setEditing(true)}>Edit</button>
+				<button type="button" className="small" onClick={() => setSettingValue(true)}>{inVault ? 'Rotate token' : 'Set token value'}</button>
 				<button type="button" className="danger small" onClick={() => setConfirming(true)}>Delete</button>
 				{confirming && (
 					<ConfirmDialog
@@ -134,6 +160,59 @@ function EditAccountRow({ account, onDone, onCancel }: { account: AccountDto; on
 			<td>{fmtDate(account.createdAt)}</td>
 			<td className="row-actions">
 				<button type="button" className="primary small" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+				<button type="button" className="small" onClick={onCancel} disabled={busy}>Cancel</button>
+			</td>
+		</tr>
+	)
+}
+
+/**
+ * Inline write-only setter for an account's CF API token VALUE. PUT (set) stores a fresh vault entry
+ * and writes the `vault:<id>` ref back; PATCH (rotate) re-encrypts the existing entry. The value is
+ * sent once and never read back — the field is cleared on success.
+ */
+function SetTokenValueRow({ account, rotate, onDone, onCancel }: { account: AccountDto; rotate: boolean; onDone: () => void; onCancel: () => void }) {
+	const [value, setValue] = useState('')
+	const [busy, setBusy] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+
+	async function save() {
+		setBusy(true)
+		setError(null)
+		try {
+			const body: SetSecretValueRequest = { value }
+			// PUT sets a new vault entry; PATCH rotates the value behind the existing vault ref.
+			await (rotate ? api.patch(`/accounts/${account.name}/token`, body) : api.put(`/accounts/${account.name}/token`, body))
+			setValue('')
+			onDone()
+		} catch (cause) {
+			setError(cause instanceof ApiError ? cause.message : 'Save failed.')
+			setBusy(false)
+		}
+	}
+
+	return (
+		<tr>
+			<td>
+				<strong>{account.name}</strong>
+			</td>
+			<td colSpan={2}>
+				<input
+					type="password"
+					aria-label="CF API token value"
+					value={value}
+					onChange={(e) => setValue(e.target.value)}
+					placeholder={rotate ? 'New token value' : 'Paste the CF API token'}
+					autoComplete="off"
+				/>
+				<span className="hint">Stored encrypted in the vault. The value is never shown again.</span>
+				{error && <div className="error-text small">{error}</div>}
+			</td>
+			<td>{fmtDate(account.createdAt)}</td>
+			<td className="row-actions">
+				<button type="button" className="primary small" onClick={save} disabled={busy || value === ''}>
+					{busy ? 'Saving…' : rotate ? 'Rotate' : 'Set'}
+				</button>
 				<button type="button" className="small" onClick={onCancel} disabled={busy}>Cancel</button>
 			</td>
 		</tr>

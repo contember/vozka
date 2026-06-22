@@ -15,6 +15,7 @@ import {
 	type PutAppEnvRequest,
 	type PutAppSecretRequest,
 	type RunDto,
+	type SetSecretValueRequest,
 	type TriggerDeployRequest,
 } from '../../lib/api'
 import { fmtDate, qs, shortRef, shortSha } from '../../lib/format'
@@ -371,10 +372,28 @@ function AddEnvForm({ appId, accounts, existing, onDone }: { appId: string; acco
 
 function SecretRow({ appId, secret, onDone }: { appId: string; secret: AppSecretDto; onDone: () => void }) {
 	const [confirming, setConfirming] = useState(false)
+	const [settingValue, setSettingValue] = useState(false)
+	/** The value lives in the vault when the ref has the `vault:` prefix; PATCH rotates it in place. */
+	const inVault = secret.valueRef.startsWith('vault:')
 
 	async function remove() {
 		await api.del(`/apps/${appId}/secrets/${secret.name}${qs({ env: secret.env })}`)
 		onDone()
+	}
+
+	if (settingValue) {
+		return (
+			<SetSecretValueRow
+				appId={appId}
+				secret={secret}
+				rotate={inVault}
+				onDone={() => {
+					setSettingValue(false)
+					onDone()
+				}}
+				onCancel={() => setSettingValue(false)}
+			/>
+		)
 	}
 
 	return (
@@ -387,6 +406,7 @@ function SecretRow({ appId, secret, onDone }: { appId: string; secret: AppSecret
 				<code>{secret.valueRef}</code>
 			</td>
 			<td className="row-actions">
+				<button type="button" className="small" onClick={() => setSettingValue(true)}>{inVault ? 'Rotate' : 'Set value'}</button>
 				<button type="button" className="danger small" onClick={() => setConfirming(true)}>Delete</button>
 				{confirming && (
 					<ConfirmDialog
@@ -401,6 +421,62 @@ function SecretRow({ appId, secret, onDone }: { appId: string; secret: AppSecret
 						onClose={() => setConfirming(false)}
 					/>
 				)}
+			</td>
+		</tr>
+	)
+}
+
+/**
+ * Inline write-only setter for an app secret's VALUE. PUT (set) stores a fresh vault entry and upserts
+ * the `vault:<id>` ref onto the (app, env, name) row; PATCH (rotate) re-encrypts the existing entry.
+ * The value is sent once and never read back — the field clears on success. `env` rides the body.
+ */
+function SetSecretValueRow(
+	{ appId, secret, rotate, onDone, onCancel }: { appId: string; secret: AppSecretDto; rotate: boolean; onDone: () => void; onCancel: () => void },
+) {
+	const [value, setValue] = useState('')
+	const [busy, setBusy] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+
+	async function save() {
+		setBusy(true)
+		setError(null)
+		try {
+			const body: SetSecretValueRequest = { value, env: secret.env }
+			const path = `/apps/${appId}/secrets/${secret.name}/value`
+			// PUT sets a new vault entry; PATCH rotates the value behind the existing vault ref.
+			await (rotate ? api.patch(path, body) : api.put(path, body))
+			setValue('')
+			onDone()
+		} catch (cause) {
+			setError(cause instanceof ApiError ? cause.message : 'Save failed.')
+			setBusy(false)
+		}
+	}
+
+	return (
+		<tr>
+			<td>
+				<code>{secret.name}</code>
+			</td>
+			<td>{secret.env === null ? <span className="muted">* (all envs)</span> : secret.env}</td>
+			<td>
+				<input
+					type="password"
+					aria-label="Secret value"
+					value={value}
+					onChange={(e) => setValue(e.target.value)}
+					placeholder={rotate ? 'New value' : 'Secret value'}
+					autoComplete="off"
+				/>
+				<span className="hint">Stored encrypted in the vault. Never shown again.</span>
+				{error && <div className="error-text small">{error}</div>}
+			</td>
+			<td className="row-actions">
+				<button type="button" className="primary small" onClick={save} disabled={busy || value === ''}>
+					{busy ? 'Saving…' : rotate ? 'Rotate' : 'Set'}
+				</button>
+				<button type="button" className="small" onClick={onCancel} disabled={busy}>Cancel</button>
 			</td>
 		</tr>
 	)

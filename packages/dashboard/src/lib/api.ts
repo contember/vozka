@@ -61,6 +61,19 @@ export interface UpdateAccountRequest {
 	cfApiTokenRef?: string
 }
 
+/**
+ * Write-only request to set / rotate a SECRET VALUE in the encrypted vault. The value never comes
+ * back out over the API — these go to the dedicated value endpoints (PUT to set, PATCH to rotate):
+ *   - account token: `PUT|PATCH /accounts/:name/token`
+ *   - app secret:    `PUT|PATCH /apps/:id/secrets/:name/value`
+ */
+export interface SetSecretValueRequest {
+	/** The plaintext value to encrypt + store. Sent once; never returned. */
+	value: string
+	/** App-secret only: the layer to target. null / omitted = the all-env layer. */
+	env?: string | null
+}
+
 // ── Apps (mirror toAppDto) ──────────────────────────────────────────────────────
 
 export interface AppDto {

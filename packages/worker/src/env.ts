@@ -38,4 +38,12 @@ export interface Env {
 	GITHUB_APP_ID?: string
 	/** GitHub App PEM private key — signs the App JWT. NEVER logged. */
 	GITHUB_APP_PRIVATE_KEY?: string
+	/**
+	 * The vault MASTER key (KEK) for the encrypted D1 secret vault — 32 raw bytes, base64. Seals every
+	 * per-value data key (src/vault.ts). Provisioned out-of-band, once per environment:
+	 *   `head -c 32 /dev/urandom | base64 | wrangler secret put VOZKA_VAULT_KEY`
+	 * (`.dev.vars` locally). OPTIONAL on the type because the env/literal dev path never needs it; the
+	 * vault management API + `vault:` ref resolution require it and fail loudly when it's absent.
+	 */
+	VOZKA_VAULT_KEY?: string
 }

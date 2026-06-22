@@ -7,7 +7,8 @@ import { createIam } from './iam'
 import { type ContainerLike, type RelayResult, relayRun } from './relay'
 import { GitHubAppRepoSource, type RepoSource } from './repo-source'
 import { type DeployJobMessage, executeDeploy, type RunDeps, type RunOutcome } from './run-lifecycle'
-import { EnvSecretResolver } from './secret-resolver'
+import { VaultSecretResolver } from './secret-resolver'
+import { Vault } from './vault'
 import { handleWebhook } from './webhook'
 
 export { RunnerContainer } from './RunnerContainer'
@@ -44,7 +45,7 @@ export class Vozka extends WorkerEntrypoint<Env> {
 		const url = new URL(request.url)
 
 		if (url.pathname === '/api/health') {
-			return Response.json({ status: 'ok', service: 'vozka', milestone: 'M3a' })
+			return Response.json({ status: 'ok', service: 'vozka', milestone: 'M4' })
 		}
 
 		// The ONE unauthenticated route: the GitHub webhook (HMAC-gated, not Access-gated).
@@ -72,13 +73,14 @@ export class Vozka extends WorkerEntrypoint<Env> {
 			return Response.json(result)
 		}
 
-		// The ACL-gated control surface (registry / runs / triggers).
+		// The ACL-gated control surface (registry / runs / triggers / vault).
 		if (url.pathname.startsWith('/api/')) {
 			return handleApi(request, {
 				db: new Db(this.env.DB),
 				iam: createIam(this.env),
 				queue: this.env.DEPLOY_QUEUE,
 				logs: this.env.RUN_LOGS,
+				vault: () => this.vault(),
 			})
 		}
 
@@ -93,7 +95,7 @@ export class Vozka extends WorkerEntrypoint<Env> {
 	 * safe no-op. ack on a handled run; retry only on an unexpected throw (Cloudflare redelivers).
 	 */
 	override async queue(batch: MessageBatch<DeployJobMessage>): Promise<void> {
-		const deps = this.runDeps()
+		const deps = await this.runDeps()
 		for (const message of batch.messages) {
 			try {
 				await executeDeploy(deps, message.body)
@@ -109,24 +111,40 @@ export class Vozka extends WorkerEntrypoint<Env> {
 	}
 
 	/** Assemble the run-lifecycle deps from the Worker bindings (startRun adapted to RunOutcome). */
-	private runDeps(): RunDeps {
+	private async runDeps(): Promise<RunDeps> {
 		const startRun = async (job: RunnerJob): Promise<RunOutcome> => {
 			const result = await this.startRun(job)
 			// The relay only resolves on a terminal status; narrow its state to the lifecycle's union.
 			const state = result.status.state === 'succeeded' ? 'succeeded' : 'failed'
 			return { status: { state, ...(result.status.exitCode !== undefined ? { exitCode: result.status.exitCode } : {}) } }
 		}
+		// The vault-backed resolver dispatches by ref scheme: `vault:<id>` → the encrypted D1 vault,
+		// `secretstore:<name>` → CF Secrets Store (CF-only), `env:`/`literal:` → dev bindings. The vault
+		// is built only when VOZKA_VAULT_KEY is present (so the env/literal path still works without it);
+		// a `vault:` ref with no vault configured fails the run loudly rather than deploying empty creds.
 		return {
 			db: new Db(this.env.DB),
 			repoSource: this.repoSource(),
-			// TODO(M4): swap EnvSecretResolver for the vault-backed resolver (per-account key, rotation).
-			// For now refs resolve against the Worker's own secret bindings (env:NAME) / literals.
-			secrets: new EnvSecretResolver({
-				GITHUB_WEBHOOK_SECRET: this.env.GITHUB_WEBHOOK_SECRET,
-				GITHUB_APP_ID: this.env.GITHUB_APP_ID,
+			secrets: new VaultSecretResolver({
+				...(this.env.VOZKA_VAULT_KEY !== undefined ? { vault: await this.vault() } : {}),
+				env: {
+					GITHUB_WEBHOOK_SECRET: this.env.GITHUB_WEBHOOK_SECRET,
+					GITHUB_APP_ID: this.env.GITHUB_APP_ID,
+				},
 			}),
 			startRun,
 		}
+	}
+
+	/**
+	 * Build the encrypted-vault handle from the `VOZKA_VAULT_KEY` Worker secret. Throws (caught by the
+	 * caller as a clean error) when the key is missing/invalid — vault routes / `vault:` refs require it.
+	 */
+	private vault(): Promise<Vault> {
+		if (this.env.VOZKA_VAULT_KEY === undefined) {
+			return Promise.reject(new Error('VOZKA_VAULT_KEY is not set'))
+		}
+		return Vault.create(this.env.DB, this.env.VOZKA_VAULT_KEY)
 	}
 
 	/** Build the v1 RepoSource (GitHub App). The webhook secret + App key come from Worker secrets. */

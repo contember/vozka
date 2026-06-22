@@ -27,7 +27,12 @@ export const ACTIONS = {
 	APP_MANAGE: 'app.manage',
 	/** Manage Cloudflare accounts (accounts CRUD). Global (no per-resource scope). */
 	ACCOUNT_MANAGE: 'account.manage',
-	/** Manage an app's secret references (app_secrets CRUD). Scoped by app. The M4 vault fills values. */
+	/**
+	 * Manage SECRET VALUES + their references. Gates two things: the app_secrets reference CRUD
+	 * (scoped by app) AND writing/rotating/deleting the encrypted VALUES in the M4 vault — both an
+	 * app/app-env secret value (app-scoped) and an account's CF API token value (global, no app to
+	 * scope to). The value is write-only over the API; it is never returned.
+	 */
 	SECRET_MANAGE: 'secret.manage',
 } as const
 
