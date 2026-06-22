@@ -3,7 +3,24 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"exports": {
+		".": {
+			"bun": "./src/index.ts",
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
 	"scripts": {
-		"typecheck": "true"
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"serve": "bun src/serve.ts",
+		"docker:prepare": "bun docker/prepare.ts",
+		"docker:build": "bun run docker:prepare && docker build -f Dockerfile -t vozka-runner ../.."
+	},
+	"dependencies": {
+		"@vozka/core": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
 	}
 }

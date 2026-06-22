@@ -68,12 +68,21 @@
     "packages/runner": {
       "name": "@vozka/runner",
       "version": "0.0.1",
+      "dependencies": {
+        "@vozka/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
     },
     "packages/worker": {
       "name": "@vozka/worker",
       "version": "0.0.1",
       "dependencies": {
+        "@cloudflare/containers": "^0.0.30",
+        "@vozka/config": "workspace:*",
         "@vozka/core": "workspace:*",
+        "@vozka/runner": "workspace:*",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20251001.0",
@@ -149,6 +158,8 @@
     "@buzola/router": ["@buzola/router@0.0.12", "", { "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-aV6U5ma2VkGLZHBqm8tBBUQ39c0tLxy6ojksgbRSpZM19+DfVGrydzhelW4SOflBuvVEe7BdW1FoE//LzNAH+g=="],
 
     "@buzola/vite-plugin": ["@buzola/vite-plugin@0.0.12", "", { "dependencies": { "@buzola/codegen": "^0.0.12", "@buzola/router": "^0.0.12" } }, "sha512-NGkDQiMcIxzGuOPnGteWhIzNTdNQWkCMKzrv7qsuAj3YU5ScVonP16vz316O4j3yiDxOWtMa6nd0laFA9mPrAQ=="],
+
+    "@cloudflare/containers": ["@cloudflare/containers@0.0.30", "", {}, "sha512-i148xBgmyn/pje82ZIyuTr/Ae0BT/YWwa1/GTJcw6DxEjUHAzZLaBCiX446U9OeuJ2rBh/L/9FIzxX5iYNt1AQ=="],
 
     "@cloudflare/kv-asset-handler": ["@cloudflare/kv-asset-handler@0.4.2", "", {}, "sha512-SIOD2DxrRRwQ+jgzlXCqoEFiKOFqaPjhnNTGKXSRLvp1HiOvapLaFG2kEr9dYQTYe8rKrd9uvDUzmAITeNyaHQ=="],
 

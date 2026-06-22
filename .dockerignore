@@ -1,0 +1,14 @@
+# Build context for packages/runner/Dockerfile is the repo root; keep it lean.
+**/node_modules
+**/dist
+**/.tsc-out
+.lopata
+.wrangler
+.git
+**/*.tsbuildinfo
+**/wrangler.jsonc
+**/worker-configuration.d.ts
+packages/dashboard
+.dev.vars
+.env
+*.log

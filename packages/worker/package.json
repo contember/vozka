@@ -17,7 +17,10 @@
 		"oblaka:deploy": "bunx oblaka oblaka.ts --remote"
 	},
 	"dependencies": {
-		"@vozka/core": "workspace:*"
+		"@cloudflare/containers": "^0.0.30",
+		"@vozka/config": "workspace:*",
+		"@vozka/core": "workspace:*",
+		"@vozka/runner": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20251001.0",

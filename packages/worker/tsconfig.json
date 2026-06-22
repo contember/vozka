@@ -2,7 +2,12 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
-		"types": ["@cloudflare/workers-types", "@types/bun"]
+		"types": ["@cloudflare/workers-types", "@types/bun"],
+		// `oblaka.ts` imports oblaka-iac, whose raw-TS source trips these two flags (same as
+		// packages/core/tsconfig.json). Relaxed ONLY to accommodate the dependency's source; our
+		// own worker code under src/ stays fully strict via the base config's defaults otherwise.
+		"noUncheckedIndexedAccess": false,
+		"noPropertyAccessFromIndexSignature": false
 	},
-	"include": ["src/**/*"]
+	"include": ["src/**/*", "oblaka.ts"]
 }
