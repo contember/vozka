@@ -9,5 +9,5 @@
 		"noUncheckedIndexedAccess": false,
 		"noPropertyAccessFromIndexSignature": false
 	},
-	"include": ["src/**/*", "oblaka.ts"]
+	"include": ["src/**/*", "oblaka.ts", "vozka.config.ts", "scripts/**/*"]
 }

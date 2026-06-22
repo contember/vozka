@@ -30,6 +30,15 @@ export interface Env {
 	ENVIRONMENT: string
 	/** 'true' locally → FakeIamClient (no Access, no IAM Worker); '' off-local → real IamClient. */
 	DEV: string
+	/** Public domain this stage serves on (drives absolute URLs); empty when unknown. */
+	VOZKA_DOMAIN?: string
+	/**
+	 * JSON array of bootstrap-admin emails (normally `'[]'`). When a caller's email is in this list,
+	 * src/iam.ts authorizes them as admin even if propustka denies / the IAM binding isn't wired yet —
+	 * the escape hatch for the FIRST operator before propustka knows about vozka. Mirrors propustka's
+	 * own IAM_BOOTSTRAP_ADMINS. Set by scripts/bootstrap.ts for initial bring-up; emptied afterwards.
+	 */
+	VOZKA_BOOTSTRAP_ADMINS?: string
 
 	// ── Secrets (provisioned out-of-band; never in oblaka.ts `vars`) ───────────
 	/** GitHub App webhook secret — HMAC-verifies inbound `POST /webhooks/github`. */

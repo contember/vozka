@@ -9,7 +9,7 @@
 import { ACTIONS } from '../actions'
 import type { Db } from '../db'
 import { error } from '../http'
-import { appScope, authorize, envScope, type Iam } from '../iam'
+import { appScope, type Authenticator, authorize, envScope } from '../iam'
 import type { Vault } from '../vault'
 import {
 	createAccount,
@@ -50,7 +50,8 @@ import {
  */
 export interface ApiDeps {
 	db: Db
-	iam: Iam
+	/** The auth guard (the router only ever calls `authenticate`); `createIam` wraps the bootstrap-admin fallback in. */
+	iam: Authenticator
 	queue: DeployQueue
 	logs: R2Reader
 	vault?: () => Promise<Vault>

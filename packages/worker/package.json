@@ -14,7 +14,9 @@
 		"typecheck": "tsc --noEmit",
 		"dev": "bunx lopata dev --env local --port 18291 --listen 0.0.0.0",
 		"oblaka": "bunx oblaka oblaka.ts",
-		"oblaka:deploy": "bunx oblaka oblaka.ts --remote"
+		"oblaka:deploy": "bunx oblaka oblaka.ts --remote",
+		"bootstrap": "bun run scripts/bootstrap.ts",
+		"seed": "bun run scripts/seed.ts"
 	},
 	"dependencies": {
 		"@cloudflare/containers": "^0.0.30",
