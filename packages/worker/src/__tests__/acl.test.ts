@@ -35,16 +35,10 @@ function req(method: string, path: string, body?: unknown): Request {
 }
 
 describe('ACL enforcement (FakeIamClient)', () => {
-	test('an allow-all caller can create an account (account.manage)', async () => {
+	test('an allow-all caller can create an app (app.manage)', async () => {
 		const { deps } = makeDeps(new FakeIamClient())
-		const response = await handleApi(req('POST', '/api/accounts', { name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' }), deps)
+		const response = await handleApi(req('POST', '/api/apps', { id: 'app', repoUrl: 'github.com/acme/app' }), deps)
 		expect(response.status).toBe(201)
-	})
-
-	test('a caller denied account.manage gets 403', async () => {
-		const { deps } = makeDeps(new FakeIamClient({ deny: ['account.manage'] }))
-		const response = await handleApi(req('POST', '/api/accounts', { name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' }), deps)
-		expect(response.status).toBe(403)
 	})
 
 	test('a caller denied app.manage cannot create an app', async () => {
@@ -63,9 +57,8 @@ describe('ACL enforcement (FakeIamClient)', () => {
 		})
 		const { deps } = makeDeps(iam)
 		// Seed an app + env so trigger gets past lookups (it should still 403 on the can-check first).
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await deps.db.createApp({ id: 'app', repoUrl: 'github.com/acme/app' })
-		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc' })
+		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod' })
 
 		const read = await handleApi(req('GET', '/api/runs'), deps)
 		expect(read.status).toBe(200)
@@ -82,9 +75,8 @@ describe('ACL enforcement (FakeIamClient)', () => {
 			defaultPersona: 'op@vozka.test',
 		})
 		const { deps, queue } = makeDeps(iam)
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await deps.db.createApp({ id: 'app', repoUrl: 'github.com/acme/app', defaultBranch: 'main' })
-		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc' })
+		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod' })
 
 		const response = await handleApi(req('POST', '/api/deploy', { appId: 'app', env: 'prod' }), deps)
 		expect(response.status).toBe(201)
@@ -97,13 +89,13 @@ describe('ACL enforcement (FakeIamClient)', () => {
 	test('an unknown persona (no grant) is 403 — authenticated but unrecognised', async () => {
 		const iam = new FakeIamClient({ personas: {}, defaultPersona: 'ghost@vozka.test' })
 		const { deps } = makeDeps(iam)
-		const response = await handleApi(req('GET', '/api/accounts'), deps)
+		const response = await handleApi(req('GET', '/api/apps'), deps)
 		expect(response.status).toBe(403)
 	})
 
 	test('unknown route → 404, unknown method → 405', async () => {
 		const { deps } = makeDeps(new FakeIamClient())
 		expect((await handleApi(req('GET', '/api/nope'), deps)).status).toBe(404)
-		expect((await handleApi(req('DELETE', '/api/accounts'), deps)).status).toBe(405)
+		expect((await handleApi(req('DELETE', '/api/apps'), deps)).status).toBe(405)
 	})
 })

@@ -1,20 +1,21 @@
-// The SECRET / CREDENTIAL resolution seam.
+// The APP-SECRET resolution seam.
 //
-// The registry stores REFERENCES, never plaintext: `accounts.cf_api_token_ref` and
-// `app_secrets.value_ref`. At deploy time those refs must become actual values to put in the
-// `RunnerJob` (the CF API token + the app's `pipeline.secrets` values the runner `wrangler secret
-// put`s). A ref encodes WHICH BACKEND holds the value (its scheme prefix), and the resolver dispatches
-// on it — so the same interface serves both the encrypted D1 vault and CF Secrets Store, with env/
-// literal kept for dev/local. Everything downstream (queue consumer, job assembly) depends ONLY on the
-// `SecretResolver` interface, so swapping backends never touches a caller. Resolved values are NEVER
-// logged and live only on the in-flight `RunnerJob`.
+// The registry stores `app_secrets.value_ref` as a REFERENCE, never plaintext. At deploy time those
+// refs must become actual values to put in the `RunnerJob` (the app's `pipeline.secrets` values the
+// runner `wrangler secret put`s). A ref encodes WHICH BACKEND holds the value (its scheme prefix), and
+// the resolver dispatches on it — so the same interface serves both the encrypted D1 vault and CF
+// Secrets Store, with env/literal kept for dev/local. Everything downstream (queue consumer, job
+// assembly) depends ONLY on the `SecretResolver` interface, so swapping backends never touches a
+// caller. Resolved values are NEVER logged and live only on the in-flight `RunnerJob`.
+//
+// Platform credentials (the CF API token, propustka provisioning creds) are NOT resolved here — vozka
+// is single-account, so they are vozka's own Worker secrets (src/env.ts), injected into every job as
+// build-time config. This seam only turns per-app secret refs into values.
 //
 // REF SCHEME (the `<scheme>:<rest>` prefix selects the backend):
 //   * `vault:<id>`         — the encrypted D1 vault (src/vault.ts). The home of per-APP / per-APP-ENV
 //                            third-party secret VALUES (envelope-encrypted, rotatable, audited).
-//   * `secretstore:<name>` — a CF Secrets Store binding entry. The home of GLOBAL / per-ACCOUNT infra
-//                            secrets (the per-account CF API tokens), kept OUT of the app vault so the
-//                            blast radius of the vault never includes account-level credentials.
+//   * `secretstore:<name>` — a CF Secrets Store binding entry, for infra secrets kept out of the vault.
 //   * `env:NAME`           — read `NAME` from the Worker's own secret bindings. Dev/bootstrap only.
 //   * `literal:VALUE`      — return VALUE verbatim. Local/test only; never store in production.
 // An unknown / unresolvable ref throws (fail loud — never deploy with a missing/empty credential).
@@ -22,10 +23,8 @@
 import type { Vault } from './vault'
 import { parseVaultRef } from './vault'
 
-/** Turns the registry's opaque refs into the plaintext values a deploy needs. */
+/** Turns the registry's opaque app-secret refs into the plaintext values a deploy needs. */
 export interface SecretResolver {
-	/** Resolve an account's CF API token from its `cf_api_token_ref`. */
-	resolveAccountToken(ref: string): Promise<string>
 	/** Resolve an app secret's value from its `value_ref`. */
 	resolveSecret(ref: string): Promise<string>
 }
@@ -53,11 +52,8 @@ export interface SecretStoreEntry {
  *   - `env:NAME`           → `env[NAME]` (dev/bootstrap, from the Worker's own secret bindings).
  *   - `literal:VALUE`      → VALUE (local/test only).
  *
- * `resolveAccountToken` (a GLOBAL/infra credential) and `resolveSecret` (an APP secret) share the same
- * dispatch — the ref's scheme, not the method, picks the backend. Convention puts account tokens in
- * `secretstore:` (or `env:` in dev) and app secrets in `vault:`, but the resolver does not hard-wire
- * that: it honors whatever backend the ref names, so a dev account token can be `env:`/`literal:` and a
- * future per-account vault entry would work without a code change.
+ * The ref's scheme, not the method, picks the backend — so an app secret can be `vault:` in production
+ * and `env:`/`literal:` in dev without a code change.
  */
 export class VaultSecretResolver implements SecretResolver {
 	constructor(
@@ -70,10 +66,6 @@ export class VaultSecretResolver implements SecretResolver {
 			env?: Record<string, string | undefined>
 		},
 	) {}
-
-	resolveAccountToken(ref: string): Promise<string> {
-		return this.resolve(ref, 'account token')
-	}
 
 	resolveSecret(ref: string): Promise<string> {
 		return this.resolve(ref, 'secret')
@@ -136,10 +128,6 @@ export class EnvSecretResolver implements SecretResolver {
 
 	constructor(source: Record<string, string | undefined>) {
 		this.inner = new VaultSecretResolver({ env: source })
-	}
-
-	resolveAccountToken(ref: string): Promise<string> {
-		return this.inner.resolveAccountToken(ref)
 	}
 
 	resolveSecret(ref: string): Promise<string> {

@@ -1,36 +1,33 @@
 #!/usr/bin/env bun
 /**
- * Seed the control-plane REGISTRY: the `accounts` (contember, mangoweb) + `apps` (vozka, propustka)
- * rows that let a GitHub push self-deploy them. Runs AFTER vozka is live (scripts/bootstrap.ts) — it
- * talks to vozka's own `/api/*` HTTP surface, so it goes through the real ACL + audit path (it does
- * NOT write D1 directly). The bootstrap admin (or a propustka-granted admin) is the caller.
+ * Seed the control-plane REGISTRY: the `apps` (vozka, propustka) rows that let a GitHub push
+ * self-deploy them. Runs AFTER vozka is live (scripts/bootstrap.ts) — it talks to vozka's own `/api/*`
+ * HTTP surface, so it goes through the real ACL + audit path (it does NOT write D1 directly). The
+ * bootstrap admin (or a propustka-granted admin) is the caller.
+ *
+ * vozka is SINGLE-ACCOUNT: there is no account registry to seed. The CF account/token + propustka
+ * coords are vozka's OWN Worker config, set at bootstrap (scripts/bootstrap.ts), and injected into
+ * every deploy. So this script only registers the apps.
  *
  * Idempotent: a row that already exists (HTTP 409) is treated as success, so re-running is safe.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────────
  * This needs REAL values at run time — DO NOT run it against a real control plane from here without
- * them. Everything is parameterized via env; the account/app SET is declared below (the known
- * contember + mangoweb accounts and the vozka + propustka apps), but the CF account ids, repo URLs,
- * domains, and token/secret REFERENCES are all env-driven so nothing real is hardcoded.
+ * them. Everything is parameterized via env; the app SET is declared below (the vozka + propustka
+ * apps), but the repo URLs and domains are all env-driven so nothing real is hardcoded.
  * ─────────────────────────────────────────────────────────────────────────────────────────────────
  *
  * Required env:
  *   VOZKA_API_URL                         — base URL of the live control plane, e.g. https://vozka.example.com
- *   CONTEMBER_CF_ACCOUNT_ID               — Cloudflare account id for the `contember` account.
- *   MANGOWEB_CF_ACCOUNT_ID                — Cloudflare account id for the `mangoweb` account.
- *   CONTEMBER_CF_TOKEN_REF                — vault REFERENCE for contember's CF API token (e.g. `secretstore:contember-cf`).
- *   MANGOWEB_CF_TOKEN_REF                 — vault REFERENCE for mangoweb's CF API token.
  *   VOZKA_REPO_URL, PROPUSTKA_REPO_URL    — the GitHub repo URLs (normalized server-side).
  *   VOZKA_APP_DOMAIN, PROPUSTKA_APP_DOMAIN — per-app domains for their first env.
  * Optional:
  *   SEED_ENV                              — the env to register each app under (default `prod`).
- *   SEED_ACCOUNT                          — which account each app deploys into (default `contember`).
- *   VOZKA_PROPUSTKA_URL                   — propustka base URL stamped on each app_env (for reconcile).
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET — Access service-token creds for the API calls.
  *
  * Usage:
- *   bun run scripts/seed.ts             # POST the rows to VOZKA_API_URL (requires the env above)
- *   bun run scripts/seed.ts --dry-run   # print the intended POSTs (account/app/env), call nothing
+ *   bun run scripts/seed.ts             # POST the app rows to VOZKA_API_URL (requires the env above)
+ *   bun run scripts/seed.ts --dry-run   # print the intended POSTs (app/env), call nothing
  */
 
 const DRY_RUN = process.argv.includes('--dry-run')
@@ -58,20 +55,11 @@ function authHeaders(): Record<string, string> {
 	return { 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret }
 }
 
-interface SeedAccount {
-	name: string
-	cfAccountId: string
-	/** A vault REFERENCE for the CF API token — never the value (the value goes into the vault separately). */
-	cfApiTokenRef: string
-}
-
 interface SeedApp {
 	id: string
 	repoUrl: string
 	env: string
-	account: string
 	domain: string
-	propustkaUrl?: string
 }
 
 /** POST a JSON body to a control-plane route; 409 (already exists) reads as success (idempotent). */
@@ -98,44 +86,17 @@ async function post(base: string, path: string, body: unknown): Promise<void> {
 async function main(): Promise<void> {
 	const base = required('VOZKA_API_URL').replace(/\/$/, '')
 	const seedEnv = optional('SEED_ENV', 'prod')
-	const seedAccount = optional('SEED_ACCOUNT', 'contember')
-	const propustkaUrl = process.env['VOZKA_PROPUSTKA_URL']
-
-	// The known accounts. cfAccountId + the token REFERENCE come from env (nothing real hardcoded).
-	const accounts: SeedAccount[] = [
-		{ name: 'contember', cfAccountId: required('CONTEMBER_CF_ACCOUNT_ID'), cfApiTokenRef: required('CONTEMBER_CF_TOKEN_REF') },
-		{ name: 'mangoweb', cfAccountId: required('MANGOWEB_CF_ACCOUNT_ID'), cfApiTokenRef: required('MANGOWEB_CF_TOKEN_REF') },
-	]
 
 	// The known apps. vozka registers ITSELF (self-deploy on push); propustka is registered too so
-	// vozka can deploy it. Repo URLs + domains are env-driven.
+	// vozka can deploy it. Repo URLs + domains are env-driven. The deploy target account is vozka's own.
 	const apps: SeedApp[] = [
-		{
-			id: 'vozka',
-			repoUrl: required('VOZKA_REPO_URL'),
-			env: seedEnv,
-			account: seedAccount,
-			domain: required('VOZKA_APP_DOMAIN'),
-			...(propustkaUrl !== undefined && propustkaUrl !== '' ? { propustkaUrl } : {}),
-		},
-		{
-			id: 'propustka',
-			repoUrl: required('PROPUSTKA_REPO_URL'),
-			env: seedEnv,
-			account: seedAccount,
-			domain: required('PROPUSTKA_APP_DOMAIN'),
-			...(propustkaUrl !== undefined && propustkaUrl !== '' ? { propustkaUrl } : {}),
-		},
+		{ id: 'vozka', repoUrl: required('VOZKA_REPO_URL'), env: seedEnv, domain: required('VOZKA_APP_DOMAIN') },
+		{ id: 'propustka', repoUrl: required('PROPUSTKA_REPO_URL'), env: seedEnv, domain: required('PROPUSTKA_APP_DOMAIN') },
 	]
 
 	console.log(`Seeding registry at ${base}${DRY_RUN ? ' (dry-run)' : ''}\n`)
 
-	console.log('Accounts:')
-	for (const account of accounts) {
-		await post(base, '/api/accounts', account)
-	}
-
-	console.log('\nApps (+ first env via onboarding):')
+	console.log('Apps (+ first env via onboarding):')
 	for (const app of apps) {
 		await post(base, '/api/register-app', app)
 	}

@@ -2,13 +2,13 @@ import type { AppConfig } from '@vozka/config'
 
 /**
  * Where a secret lives in the control plane's scoping hierarchy, widest → narrowest:
- *  - 'global'   — shared across every account and app (e.g. a propustka client secret).
- *  - 'account'  — scoped to one Cloudflare account.
  *  - 'app'      — scoped to one app, across all its environments.
  *  - 'app-env'  — scoped to one app in one environment (the narrowest, e.g. prod-only keys).
- * Resolution layers narrowest over widest.
+ * Resolution layers narrowest over widest. The vault holds ONLY these app-specific secrets;
+ * platform credentials (the CF API token, propustka provisioning creds) are vozka's own Worker
+ * secrets (build-time config), never per-app vault entries.
  */
-export type SecretScope = 'global' | 'account' | 'app' | 'app-env'
+export type SecretScope = 'app' | 'app-env'
 
 /** A reference to a secret in the store — resolved to a value at deploy time, never inlined. */
 export interface SecretRef {

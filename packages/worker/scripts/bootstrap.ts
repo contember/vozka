@@ -23,8 +23,9 @@
  *      first operator's email(s). After it lands, that operator can sign in through Access and use the
  *      whole control plane as admin even though propustka has granted them nothing yet.
  *
- *   3. REGISTER apps THIRD — `scripts/seed.ts` (accounts + apps registry rows) so a GitHub push
- *      self-deploys them. Run it against the now-live control plane.
+ *   3. REGISTER apps THIRD — `scripts/seed.ts` (apps registry rows) so a GitHub push self-deploys
+ *      them. Run it against the now-live control plane. (vozka is single-account — there is no
+ *      account registry; the CF account/token are vozka's own Worker config, set in step 2.)
  *
  *   4. Once the operator has set up real propustka grants (admin role in the propustka admin UI),
  *      REMOVE VOZKA_BOOTSTRAP_ADMINS (set it back to `[]` and redeploy) so the escape hatch is closed
@@ -35,13 +36,19 @@
  * documented above (1 + 4 link out to propustka; 3 is scripts/seed.ts).
  *
  * Required env (NEVER committed/logged — the operator holds these):
- *   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN   — the CF account vozka deploys into.
+ *   CLOUDFLARE_ACCOUNT_ID                          — the SINGLE CF account vozka runs on + deploys into.
+ *   CLOUDFLARE_API_TOKEN                           — the account-wide CF token. Authenticates THIS deploy
+ *                                                    AND becomes vozka's runtime secret (it deploys every
+ *                                                    other app with the same token — single-account).
+ *   PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET — the one propustka's base URL + vozka's
+ *                                                    provisioning key. Become vozka's runtime config so it
+ *                                                    reconciles every app it deploys; also reconcile vozka.
  *   VOZKA_BOOTSTRAP_ADMINS                         — JSON array of the first operator email(s).
  *   VOZKA_DOMAIN                                   — vozka's hostname (drives Access destinations + vars).
  *   VOZKA_VAULT_KEY                                — the M4 vault master key (32 raw bytes, base64).
  *   GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET  — the GitHub App PEM key + webhook HMAC secret.
- * Optional (enables the propustka reconcile steps; omit to deploy without reconciling):
- *   PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET, VOZKA_ENV (default `prod`).
+ * Optional:
+ *   VOZKA_ENV (default `prod`).
  *
  * Usage:
  *   bun run scripts/bootstrap.ts            # real deploy (requires the env above)
@@ -83,21 +90,26 @@ async function main(): Promise<void> {
 	const env = optional('VOZKA_ENV') ?? 'prod'
 
 	// The secret VALUES vozka needs at deploy, gathered by the SAME names the config declares in
-	// `pipeline.secrets`. Read from the environment; never inlined, never logged.
+	// `pipeline.secrets`. Read from the environment; never inlined, never logged. CLOUDFLARE_API_TOKEN +
+	// the propustka provisioning key are vozka's RUNTIME platform creds (it injects them into every
+	// deploy it runs), so they are required Worker secrets — a vozka without them can't deploy/reconcile.
 	const secrets: Record<string, string> = {
 		VOZKA_VAULT_KEY: required('VOZKA_VAULT_KEY'),
 		GITHUB_APP_PRIVATE_KEY: required('GITHUB_APP_PRIVATE_KEY'),
 		GITHUB_WEBHOOK_SECRET: required('GITHUB_WEBHOOK_SECRET'),
+		CLOUDFLARE_API_TOKEN: required('CLOUDFLARE_API_TOKEN'),
+		PROPUSTKA_CLIENT_ID: required('PROPUSTKA_CLIENT_ID'),
+		PROPUSTKA_CLIENT_SECRET: required('PROPUSTKA_CLIENT_SECRET'),
 	}
 
 	const ctx: DeployContext = {
 		env,
 		domain: required('VOZKA_DOMAIN'),
 		accountId: required('CLOUDFLARE_ACCOUNT_ID'),
-		apiToken: required('CLOUDFLARE_API_TOKEN'),
-		propustkaUrl: optional('PROPUSTKA_URL'),
-		clientId: optional('PROPUSTKA_CLIENT_ID'),
-		clientSecret: optional('PROPUSTKA_CLIENT_SECRET'),
+		apiToken: secrets.CLOUDFLARE_API_TOKEN,
+		propustkaUrl: required('PROPUSTKA_URL'),
+		clientId: secrets.PROPUSTKA_CLIENT_ID,
+		clientSecret: secrets.PROPUSTKA_CLIENT_SECRET,
 		secrets,
 		// vozka.config + its workerDir resolve against packages/worker (this script's parent dir).
 		cwd: resolve(import.meta.dir, '..'),
@@ -127,7 +139,7 @@ async function main(): Promise<void> {
 		process.exit(1)
 	}
 
-	console.log('\nNext: register accounts + apps (scripts/seed.ts), then close the escape hatch (set')
+	console.log('\nNext: register apps (scripts/seed.ts), then close the escape hatch (set')
 	console.log('VOZKA_BOOTSTRAP_ADMINS=[] and redeploy once propustka grants the operator admin).')
 }
 

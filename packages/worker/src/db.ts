@@ -1,19 +1,14 @@
 // All D1 access for the vozka control plane. Prepared statements via `db.prepare(...).bind(...)`,
-// grouped by the resource they touch: accounts, apps, app_envs, app_secrets, runs. Mirrors
-// propustka's `Db` pattern (snake_case row shapes matching migrations/0001_init.sql, `firstRow`
-// for RETURNING statements). Caller-generated UUIDv7 ids are stamped in the Worker, never by SQL.
+// grouped by the resource they touch: apps, app_envs, app_secrets, runs. Mirrors propustka's `Db`
+// pattern (snake_case row shapes matching migrations/0001_init.sql, `firstRow` for RETURNING
+// statements). Caller-generated UUIDv7 ids are stamped in the Worker, never by SQL.
+//
+// vozka is single-account (see migrations/0003): the CF account/token + propustka coords are vozka's
+// OWN Worker config (src/env.ts), not a per-account registry table, so there is no `accounts` access here.
 
 import { uuidv7 } from './uuid'
 
 // ── D1 row shapes (snake_case, as migrations/0001_init.sql defines) ────────────
-
-export interface AccountRow {
-	name: string
-	cf_account_id: string
-	/** REFERENCE into the M4 vault — never the plaintext CF API token. */
-	cf_api_token_ref: string
-	created_at: number
-}
 
 export interface AppRow {
 	id: string
@@ -29,9 +24,7 @@ export interface AppRow {
 export interface AppEnvRow {
 	app_id: string
 	env: string
-	account_name: string
 	domain: string | null
-	propustka_url: string | null
 	/** Git ref that triggers a deploy here, e.g. `refs/heads/deploy/prod`. NULL = manual-only. */
 	trigger_ref: string | null
 	created_at: number
@@ -82,41 +75,6 @@ async function firstRow<T>(statement: D1PreparedStatement): Promise<T> {
 /** All D1 access for the control plane. */
 export class Db {
 	constructor(private readonly d1: D1Database) {}
-
-	// ── Accounts ──────────────────────────────────────────────────────────────
-
-	async listAccounts(): Promise<AccountRow[]> {
-		const { results } = await this.d1.prepare('SELECT * FROM accounts ORDER BY name').all<AccountRow>()
-		return results
-	}
-
-	async getAccount(name: string): Promise<AccountRow | null> {
-		return this.d1.prepare('SELECT * FROM accounts WHERE name = ?').bind(name).first<AccountRow>()
-	}
-
-	async createAccount(input: { name: string; cfAccountId: string; cfApiTokenRef: string }): Promise<AccountRow> {
-		return firstRow<AccountRow>(
-			this.d1
-				.prepare('INSERT INTO accounts (name, cf_account_id, cf_api_token_ref) VALUES (?, ?, ?) RETURNING *')
-				.bind(input.name, input.cfAccountId, input.cfApiTokenRef),
-		)
-	}
-
-	/** Update mutable account columns. Only provided fields change; returns the updated row (or null). */
-	async updateAccount(name: string, patch: { cfAccountId?: string; cfApiTokenRef?: string }): Promise<AccountRow | null> {
-		return this.d1
-			.prepare(`UPDATE accounts SET
-				cf_account_id = COALESCE(?, cf_account_id),
-				cf_api_token_ref = COALESCE(?, cf_api_token_ref)
-				WHERE name = ? RETURNING *`)
-			.bind(patch.cfAccountId ?? null, patch.cfApiTokenRef ?? null, name)
-			.first<AccountRow>()
-	}
-
-	async deleteAccount(name: string): Promise<boolean> {
-		const result = await this.d1.prepare('DELETE FROM accounts WHERE name = ?').bind(name).run()
-		return (result.meta.changes ?? 0) > 0
-	}
 
 	// ── Apps ────────────────────────────────────────────────────────────────────
 
@@ -227,27 +185,21 @@ export class Db {
 	async upsertAppEnv(input: {
 		appId: string
 		env: string
-		accountName: string
 		domain?: string | null
-		propustkaUrl?: string | null
 		triggerRef?: string | null
 	}): Promise<AppEnvRow> {
 		return firstRow<AppEnvRow>(
 			this.d1
-				.prepare(`INSERT INTO app_envs (app_id, env, account_name, domain, propustka_url, trigger_ref)
-					VALUES (?, ?, ?, ?, ?, ?)
+				.prepare(`INSERT INTO app_envs (app_id, env, domain, trigger_ref)
+					VALUES (?, ?, ?, ?)
 					ON CONFLICT (app_id, env) DO UPDATE SET
-						account_name = excluded.account_name,
 						domain = excluded.domain,
-						propustka_url = excluded.propustka_url,
 						trigger_ref = excluded.trigger_ref
 					RETURNING *`)
 				.bind(
 					input.appId,
 					input.env,
-					input.accountName,
 					input.domain ?? null,
-					input.propustkaUrl ?? null,
 					input.triggerRef ?? null,
 				),
 		)

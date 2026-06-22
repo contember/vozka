@@ -11,7 +11,7 @@ export default createPage()
 	.params({ id: 'string' })
 	.loader(async ({ params }) => {
 		const run = await api.get<RunDto>(`/runs/${params.id}`)
-		// The env's deploy target (account/domain) is useful context; tolerate it being gone (deleted env).
+		// The env's deploy target (domain) is useful context; tolerate it being gone (deleted env).
 		const envs = await api.get<ListResponse<AppEnvDto>>(`/apps/${run.appId}/envs`).catch(() => null)
 		const appEnv = envs?.items.find((e) => e.env === run.env) ?? null
 		return { run, appEnv }
@@ -49,14 +49,9 @@ export default createPage()
 						<Field label="Created">{fmtDate(run.createdAt)}</Field>
 						<Field label="Started">{fmtDate(run.startedAt)}</Field>
 						<Field label="Finished">{fmtDate(run.finishedAt)}</Field>
-						{appEnv !== null && (
+						{appEnv !== null && appEnv.domain !== null && (
 							<Field label="Target">
-								{appEnv.accountName}
-								{appEnv.domain !== null && (
-									<>
-										· <code>{appEnv.domain}</code>
-									</>
-								)}
+								<code>{appEnv.domain}</code>
 							</Field>
 						)}
 					</div>

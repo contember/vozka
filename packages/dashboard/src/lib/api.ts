@@ -40,32 +40,10 @@ export interface CursorList<T> {
 	nextCursor: string | null
 }
 
-// ── Accounts (mirror toAccountDto) ──────────────────────────────────────────────
-
-export interface AccountDto {
-	name: string
-	cfAccountId: string
-	/** REFERENCE into the vault — never the plaintext CF API token. */
-	cfApiTokenRef: string
-	createdAt: number
-}
-
-export interface CreateAccountRequest {
-	name: string
-	cfAccountId: string
-	cfApiTokenRef: string
-}
-
-export interface UpdateAccountRequest {
-	cfAccountId?: string
-	cfApiTokenRef?: string
-}
-
 /**
- * Write-only request to set / rotate a SECRET VALUE in the encrypted vault. The value never comes
- * back out over the API — these go to the dedicated value endpoints (PUT to set, PATCH to rotate):
- *   - account token: `PUT|PATCH /accounts/:name/token`
- *   - app secret:    `PUT|PATCH /apps/:id/secrets/:name/value`
+ * Write-only request to set / rotate an app-secret VALUE in the encrypted vault. The value never comes
+ * back out over the API — it goes to the dedicated value endpoint (PUT to set, PATCH to rotate):
+ *   - app secret: `PUT|PATCH /apps/:id/secrets/:name/value`
  */
 export interface SetSecretValueRequest {
 	/** The plaintext value to encrypt + store. Sent once; never returned. */
@@ -105,18 +83,14 @@ export interface UpdateAppRequest extends AppOptionalFields {
 export interface AppEnvDto {
 	appId: string
 	env: string
-	accountName: string
 	domain: string | null
-	propustkaUrl: string | null
 	/** Git ref that triggers a deploy here, e.g. `refs/heads/deploy/prod`. null = manual-only. */
 	triggerRef: string | null
 	createdAt: number
 }
 
 export interface PutAppEnvRequest {
-	accountName: string
 	domain?: string | null
-	propustkaUrl?: string | null
 	triggerRef?: string | null
 }
 
@@ -146,10 +120,7 @@ export interface RegisterAppRequest extends AppOptionalFields {
 	id: string
 	repoUrl: string
 	env: string
-	/** The (existing) account name to bind the first env to. */
-	account: string
 	domain?: string | null
-	propustkaUrl?: string | null
 	triggerRef?: string | null
 }
 

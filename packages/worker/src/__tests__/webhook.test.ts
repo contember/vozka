@@ -28,9 +28,8 @@ function makeQueue(): { sent: DeployJobMessage[]; send(message: DeployJobMessage
  * URL (the handlers normalize on write; here we seed the Db directly, so we normalize explicitly).
  */
 async function seedRegistry(db: ReturnType<typeof createHarness>['db'], cloneUrl: string): Promise<void> {
-	await db.createAccount({ name: 'acc', cfAccountId: 'cf-123', cfApiTokenRef: 'env:CF_TOKEN' })
 	await db.createApp({ id: 'app', repoUrl: normalizeRepoUrl(cloneUrl) })
-	await db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc', triggerRef: 'refs/heads/deploy/prod' })
+	await db.upsertAppEnv({ appId: 'app', env: 'prod', triggerRef: 'refs/heads/deploy/prod' })
 }
 
 describe('handleWebhook (HMAC + ref→env)', () => {
@@ -118,9 +117,8 @@ describe('handleWebhook (HMAC + ref→env)', () => {
 	test('repo URL matching is normalized (registered https vs pushed .git/scp form both match)', async () => {
 		const { db } = createHarness()
 		// Registered WITHOUT .git; pushed WITH .git and mixed case host — must still match.
-		await db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await db.createApp({ id: 'app', repoUrl: 'github.com/acme/App' })
-		await db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc', triggerRef: 'refs/heads/deploy/prod' })
+		await db.upsertAppEnv({ appId: 'app', env: 'prod', triggerRef: 'refs/heads/deploy/prod' })
 		const queue = makeQueue()
 		const request = await pushWebhookRequest({ ref: 'refs/heads/deploy/prod', cloneUrl: 'https://GitHub.com/acme/App.git', secret: SECRET })
 

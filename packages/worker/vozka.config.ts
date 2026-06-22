@@ -64,6 +64,11 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 			// when propustka denies / the IAM binding isn't wired yet. Empty by default; the bootstrap
 			// script (scripts/bootstrap.ts) sets the first operator's email here for initial bring-up.
 			VOZKA_BOOTSTRAP_ADMINS: process.env['VOZKA_BOOTSTRAP_ADMINS'] ?? '[]',
+			// The SINGLE Cloudflare account vozka deploys every app into (single-account; not secret),
+			// and the propustka coords every deploy reconciles against. Surfaced from the deploy env (the
+			// CLI/bootstrap always set them); the running Worker injects them into every RunnerJob.
+			CLOUDFLARE_ACCOUNT_ID: process.env['CLOUDFLARE_ACCOUNT_ID'] ?? '',
+			PROPUSTKA_URL: process.env['PROPUSTKA_URL'] ?? '',
 		},
 		bindings: {
 			// Per-run deploy-runner container. The DO class lives in src/RunnerContainer.ts and is
@@ -148,7 +153,7 @@ const buildAccess = (): AppAccess => {
  * — the action strings and scope dimensions here are exactly what `auth.can(action, scope)` checks.
  *
  * Roles (origin='app'):
- *   - operator → `deploy.*`  (trigger + read any deploy; no registry/account/secret management)
+ *   - operator → `deploy.*`  (trigger + read any deploy; no registry/secret management)
  *   - admin    → `*`         (every action, every scope)
  */
 const schema: AppSchema = {
@@ -162,13 +167,12 @@ const schema: AppSchema = {
 		{ action: ACTIONS.DEPLOY_TRIGGER, description: 'Trigger a deploy run' },
 		{ action: ACTIONS.DEPLOY_READ, description: 'Read deploy runs + their logs' },
 		{ action: ACTIONS.APP_MANAGE, description: 'Manage the app registry (apps + app_envs)' },
-		{ action: ACTIONS.ACCOUNT_MANAGE, description: 'Manage Cloudflare accounts' },
 		{ action: ACTIONS.SECRET_MANAGE, description: 'Manage secret values + their references' },
 	],
 	roles: {
 		operator: {
 			name: 'Operator',
-			description: 'Trigger and read any deploy (no registry, account, or secret management).',
+			description: 'Trigger and read any deploy (no registry or secret management).',
 			// `deploy.*` covers deploy.trigger + deploy.read (prefix wildcard).
 			permissions: ['deploy.*'],
 		},
@@ -194,7 +198,18 @@ export default defineApp({
 		//   - VOZKA_VAULT_KEY         — the M4 vault master key (KEK) for the encrypted D1 secret vault.
 		//   - GITHUB_APP_PRIVATE_KEY  — the GitHub App PEM key (signs the App JWT for install tokens).
 		//   - GITHUB_WEBHOOK_SECRET   — HMAC-verifies inbound POST /webhooks/github.
+		//   - CLOUDFLARE_API_TOKEN    — the account-wide CF token vozka deploys every app with (single
+		//                               account → one token; same token that authenticated THIS deploy).
+		//   - PROPUSTKA_CLIENT_ID/SECRET — vozka's propustka provisioning key, injected into deploys that
+		//                               reconcile schema/access. Omit at deploy to run without reconcile.
 		// Their VALUES are read from the environment by name at deploy time (never inlined here).
-		secrets: ['VOZKA_VAULT_KEY', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_WEBHOOK_SECRET'],
+		secrets: [
+			'VOZKA_VAULT_KEY',
+			'GITHUB_APP_PRIVATE_KEY',
+			'GITHUB_WEBHOOK_SECRET',
+			'CLOUDFLARE_API_TOKEN',
+			'PROPUSTKA_CLIENT_ID',
+			'PROPUSTKA_CLIENT_SECRET',
+		],
 	},
 })

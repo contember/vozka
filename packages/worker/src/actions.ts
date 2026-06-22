@@ -25,13 +25,11 @@ export const ACTIONS = {
 	DEPLOY_READ: 'deploy.read',
 	/** Manage the app registry (apps + app_envs CRUD, onboarding). Scoped by app (global to create). */
 	APP_MANAGE: 'app.manage',
-	/** Manage Cloudflare accounts (accounts CRUD). Global (no per-resource scope). */
-	ACCOUNT_MANAGE: 'account.manage',
 	/**
-	 * Manage SECRET VALUES + their references. Gates two things: the app_secrets reference CRUD
-	 * (scoped by app) AND writing/rotating/deleting the encrypted VALUES in the M4 vault — both an
-	 * app/app-env secret value (app-scoped) and an account's CF API token value (global, no app to
-	 * scope to). The value is write-only over the API; it is never returned.
+	 * Manage SECRET VALUES + their references. Gates the app_secrets reference CRUD (scoped by app) AND
+	 * writing/rotating/deleting the encrypted per-app/app-env VALUES in the vault. The value is
+	 * write-only over the API; it is never returned. (Platform creds — the CF token, propustka
+	 * provisioning creds — are vozka's own Worker secrets, not managed through this action.)
 	 */
 	SECRET_MANAGE: 'secret.manage',
 } as const

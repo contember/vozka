@@ -45,7 +45,7 @@ function req(method: string, path: string, body?: unknown): Request {
 	})
 }
 
-/** A persona granting exactly `secret.manage` globally (covers both account-token + app-secret values). */
+/** A persona granting exactly `secret.manage` + `app.manage` globally (covers the app-secret values). */
 function secretManager(): FakeIamClient {
 	return new FakeIamClient({
 		personas: {
@@ -53,73 +53,20 @@ function secretManager(): FakeIamClient {
 				id: 'p-sm',
 				label: 'sm@vozka.test',
 				type: 'user',
-				permissions: [{ action: 'secret.manage', scope: null, source: 'grant' }, { action: 'account.manage', scope: null, source: 'grant' }, {
-					action: 'app.manage',
-					scope: null,
-					source: 'grant',
-				}],
+				permissions: [
+					{ action: 'secret.manage', scope: null, source: 'grant' },
+					{ action: 'app.manage', scope: null, source: 'grant' },
+				],
 			},
 		},
 		defaultPersona: 'sm@vozka.test',
 	})
 }
 
-describe('account token value endpoints (secret.manage)', () => {
-	test('PUT stores the value in the vault, writes the ref back, never returns the value', async () => {
-		const { deps, vault } = makeDeps(secretManager())
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:BOOTSTRAP' })
-
-		const response = await handleApi(req('PUT', '/api/accounts/acc/token', { value: 'CF-API-TOKEN-XYZ' }), deps)
-		expect(response.status).toBe(200)
-		const text = await response.text()
-		expect(text).not.toContain('CF-API-TOKEN-XYZ') // write-only: value never echoed
-
-		const account = await deps.db.getAccount('acc')
-		expect(parseVaultRef(account!.cf_api_token_ref)).not.toBeNull() // ref written back onto the row
-		// The stored value decrypts through the vault (so the JobSpec path will resolve it).
-		expect(await (await vault).getSecret(account!.cf_api_token_ref)).toBe('CF-API-TOKEN-XYZ')
-	})
-
-	test('PATCH rotates the value in place; PUT replaces and drops the old vault entry', async () => {
-		const { deps, vault } = makeDeps(secretManager())
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:BOOTSTRAP' })
-
-		await handleApi(req('PUT', '/api/accounts/acc/token', { value: 'v1' }), deps)
-		const firstRef = (await deps.db.getAccount('acc'))!.cf_api_token_ref
-
-		const rotate = await handleApi(req('PATCH', '/api/accounts/acc/token', { value: 'v2' }), deps)
-		expect(rotate.status).toBe(200)
-		expect(await (await vault).getSecret(firstRef)).toBe('v2') // same ref, new value
-
-		// A PUT replaces the entry with a new ref and drops the old one.
-		const put = await handleApi(req('PUT', '/api/accounts/acc/token', { value: 'v3' }), deps)
-		expect(put.status).toBe(200)
-		const secondRef = (await deps.db.getAccount('acc'))!.cf_api_token_ref
-		expect(secondRef).not.toBe(firstRef)
-		await expect((await vault).getSecret(firstRef)).rejects.toThrow() // old entry deleted
-		expect(await (await vault).getSecret(secondRef)).toBe('v3')
-	})
-
-	test('rotate before set is a 409 (not a vault ref yet)', async () => {
-		const { deps } = makeDeps(secretManager())
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:BOOTSTRAP' })
-		const response = await handleApi(req('PATCH', '/api/accounts/acc/token', { value: 'x' }), deps)
-		expect(response.status).toBe(409)
-	})
-
-	test('a caller denied secret.manage gets 403 (account token)', async () => {
-		const { deps } = makeDeps(new FakeIamClient({ deny: ['secret.manage'] }))
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:BOOTSTRAP' })
-		const response = await handleApi(req('PUT', '/api/accounts/acc/token', { value: 'x' }), deps)
-		expect(response.status).toBe(403)
-	})
-})
-
 describe('app secret value endpoints (secret.manage, app-scoped)', () => {
 	async function seedApp(deps: ApiDeps): Promise<void> {
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await deps.db.createApp({ id: 'app', repoUrl: 'github.com/acme/app' })
-		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc' })
+		await deps.db.upsertAppEnv({ appId: 'app', env: 'prod' })
 	}
 
 	test('PUT .../secrets/:name/value stores in the vault + upserts the ref; value not returned', async () => {
@@ -184,8 +131,8 @@ describe('vault not configured', () => {
 			logs: { get: () => Promise.resolve(null) },
 			// no `vault` factory
 		}
-		await db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
-		const response = await handleApi(req('PUT', '/api/accounts/acc/token', { value: 'x' }), deps)
+		await db.createApp({ id: 'app', repoUrl: 'github.com/acme/app' })
+		const response = await handleApi(req('PUT', '/api/apps/app/secrets/API_KEY/value', { value: 'x' }), deps)
 		expect(response.status).toBe(500)
 	})
 })

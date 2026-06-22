@@ -12,11 +12,19 @@ import { createHarness } from './helpers/harness'
 // (1) job assembly (creds + secrets resolved through the seam, never on argv/logged), and (2) the
 // run-row state transitions (pending → running → succeeded|failed, with the idempotent status guard).
 
-/** Seed account + app (one secret) + env; return the created pending run row. */
+/** vozka's build-time platform deploy config — single CF account/token + propustka coords. */
+const DEPLOY = {
+	cloudflareAccountId: 'cf-acct-123',
+	cloudflareApiToken: 'cf-token-xyz',
+	propustkaUrl: 'https://iam.example',
+	propustkaClientId: 'cid',
+	propustkaClientSecret: 'csec',
+}
+
+/** Seed app (one secret) + env; return the created pending run row. */
 async function seedRun(db: Db, options: { dryRun?: boolean; commitSha?: string } = {}): Promise<{ runId: string }> {
-	await db.createAccount({ name: 'acc', cfAccountId: 'cf-acct-123', cfApiTokenRef: 'literal:cf-token-xyz' })
 	await db.createApp({ id: 'app', repoUrl: 'github.com/acme/app', workerDir: 'worker', configPath: 'vozka.config.ts' })
-	await db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc', domain: 'app.example.com', propustkaUrl: 'https://iam.example' })
+	await db.upsertAppEnv({ appId: 'app', env: 'prod', domain: 'app.example.com' })
 	await db.upsertAppSecret({ appId: 'app', env: null, name: 'API_KEY', valueRef: 'literal:all-env-value' })
 	await db.upsertAppSecret({ appId: 'app', env: 'prod', name: 'API_KEY', valueRef: 'literal:prod-value' })
 	const runId = uuidv7()
@@ -31,6 +39,7 @@ function makeDeps(db: Db, outcome: RunOutcome): { deps: RunDeps; jobs: RunnerJob
 		db,
 		repoSource: new FakeRepoSource(),
 		secrets: new EnvSecretResolver({}),
+		deploy: DEPLOY,
 		startRun: (job) => {
 			jobs.push(job)
 			return Promise.resolve(outcome)
@@ -40,7 +49,7 @@ function makeDeps(db: Db, outcome: RunOutcome): { deps: RunDeps; jobs: RunnerJob
 }
 
 describe('assembleJob', () => {
-	test('resolves account token + per-env secrets (narrower env wins) into the RunnerJob', async () => {
+	test('injects platform creds + resolves per-env secrets (narrower env wins) into the RunnerJob', async () => {
 		const { db } = createHarness()
 		const { runId } = await seedRun(db)
 		const run = await db.getRun(runId)
@@ -49,11 +58,10 @@ describe('assembleJob', () => {
 		const secrets = new EnvSecretResolver({})
 
 		const job = await assembleJob(
-			{ db, repoSource: new FakeRepoSource(), secrets, startRun: () => Promise.reject(new Error('unused')) },
+			{ db, repoSource: new FakeRepoSource(), secrets, deploy: DEPLOY, startRun: () => Promise.reject(new Error('unused')) },
 			run!,
 			app!,
 			appEnv!,
-			{ cfAccountId: app ? 'cf-acct-123' : '', cfApiTokenRef: 'literal:cf-token-xyz' },
 		)
 
 		expect(job.runId).toBe(runId)
@@ -62,9 +70,12 @@ describe('assembleJob', () => {
 		expect(job.workerDir).toBe('worker')
 		expect(job.configPath).toBe('vozka.config.ts')
 		expect(job.domain).toBe('app.example.com')
+		// Platform creds come from the build-time deploy config, not the registry.
 		expect(job.credentials.CLOUDFLARE_ACCOUNT_ID).toBe('cf-acct-123')
 		expect(job.credentials.CLOUDFLARE_API_TOKEN).toBe('cf-token-xyz')
 		expect(job.credentials.PROPUSTKA_URL).toBe('https://iam.example')
+		expect(job.credentials.PROPUSTKA_CLIENT_ID).toBe('cid')
+		expect(job.credentials.PROPUSTKA_CLIENT_SECRET).toBe('csec')
 		// The env-specific secret layer wins over the all-env layer for the same name.
 		expect(job.secrets).toEqual({ API_KEY: 'prod-value' })
 	})
@@ -76,21 +87,36 @@ describe('assembleJob', () => {
 		const app = await db.getApp('app')
 		const appEnv = await db.getAppEnv('app', 'prod')
 		const job = await assembleJob(
-			{ db, repoSource: new FakeRepoSource(), secrets: new EnvSecretResolver({}), startRun: () => Promise.reject(new Error('x')) },
+			{ db, repoSource: new FakeRepoSource(), secrets: new EnvSecretResolver({}), deploy: DEPLOY, startRun: () => Promise.reject(new Error('x')) },
 			run!,
 			app!,
 			appEnv!,
-			{ cfAccountId: 'cf-acct-123', cfApiTokenRef: 'literal:cf-token-xyz' },
 			{ dryRun: true },
 		)
 		expect(job.dryRun).toBe(true)
 	})
 
+	test('throws when the platform CF credentials are unconfigured (never deploy empty)', async () => {
+		const { db } = createHarness()
+		const { runId } = await seedRun(db)
+		const run = await db.getRun(runId)
+		const app = await db.getApp('app')
+		const appEnv = await db.getAppEnv('app', 'prod')
+		const emptyDeploy = { ...DEPLOY, cloudflareApiToken: '' }
+		await expect(
+			assembleJob(
+				{ db, repoSource: new FakeRepoSource(), secrets: new EnvSecretResolver({}), deploy: emptyDeploy, startRun: () => Promise.reject(new Error('x')) },
+				run!,
+				app!,
+				appEnv!,
+			),
+		).rejects.toThrow(/Cloudflare credentials not configured/)
+	})
+
 	test('embeds an installation clone token when the app has an installation id', async () => {
 		const { db } = createHarness()
-		await db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'literal:t' })
 		await db.createApp({ id: 'app', repoUrl: 'https://github.com/acme/app.git', githubInstallationId: 42 })
-		await db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc' })
+		await db.upsertAppEnv({ appId: 'app', env: 'prod' })
 		const runId = uuidv7()
 		await db.createRun({ id: runId, appId: 'app', env: 'prod', ref: 'main', trigger: 'manual' })
 		const run = await db.getRun(runId)
@@ -102,12 +128,12 @@ describe('assembleJob', () => {
 				db,
 				repoSource: new FakeRepoSource({ fakeToken: 'ghs-installtok' }),
 				secrets: new EnvSecretResolver({}),
+				deploy: DEPLOY,
 				startRun: () => Promise.reject(new Error('x')),
 			},
 			run!,
 			app!,
 			appEnv!,
-			{ cfAccountId: 'cf', cfApiTokenRef: 'literal:t' },
 		)
 		expect(job.repoUrl).toContain('x-access-token:ghs-installtok@')
 	})
@@ -165,12 +191,12 @@ describe('executeDeploy (run-row state transitions)', () => {
 		expect(result.status).toBe('skipped')
 	})
 
-	test('an assembly error (unresolvable token) records the run as failed, never throws', async () => {
+	test('an assembly error (unresolvable secret ref) records the run as failed, never throws', async () => {
 		const { db } = createHarness()
-		// Account token ref points at an env var that does not exist → resolver throws.
-		await db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:MISSING' })
 		await db.createApp({ id: 'app', repoUrl: 'github.com/acme/app' })
-		await db.upsertAppEnv({ appId: 'app', env: 'prod', accountName: 'acc' })
+		await db.upsertAppEnv({ appId: 'app', env: 'prod' })
+		// Secret ref points at an env var that does not exist → resolveSecret throws during assembly.
+		await db.upsertAppSecret({ appId: 'app', env: null, name: 'API_KEY', valueRef: 'env:MISSING' })
 		const runId = uuidv7()
 		await db.createRun({ id: runId, appId: 'app', env: 'prod', ref: 'main', trigger: 'manual' })
 		const { deps } = makeDeps(db, { status: { state: 'succeeded' } })

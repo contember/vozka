@@ -133,6 +133,19 @@ export class Vozka extends WorkerEntrypoint<Env> {
 				},
 			}),
 			startRun,
+			// vozka's build-time platform deploy config: the single CF account/token + propustka coords,
+			// injected into every job (single-account — no per-account registry). Empty creds fail the run
+			// loudly in assembleJob rather than deploying empty. Optional propustka coords are omitted when
+			// unset (an app without access/schema never needs them).
+			deploy: {
+				cloudflareAccountId: this.env.CLOUDFLARE_ACCOUNT_ID ?? '',
+				cloudflareApiToken: this.env.CLOUDFLARE_API_TOKEN ?? '',
+				...(this.env.PROPUSTKA_URL !== undefined && this.env.PROPUSTKA_URL !== '' ? { propustkaUrl: this.env.PROPUSTKA_URL } : {}),
+				...(this.env.PROPUSTKA_CLIENT_ID !== undefined && this.env.PROPUSTKA_CLIENT_ID !== '' ? { propustkaClientId: this.env.PROPUSTKA_CLIENT_ID } : {}),
+				...(this.env.PROPUSTKA_CLIENT_SECRET !== undefined && this.env.PROPUSTKA_CLIENT_SECRET !== ''
+					? { propustkaClientSecret: this.env.PROPUSTKA_CLIENT_SECRET }
+					: {}),
+			},
 		}
 	}
 

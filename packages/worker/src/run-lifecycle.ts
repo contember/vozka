@@ -30,39 +30,55 @@ export interface RunOutcome {
 /** The injected runner: M2's `Vozka.startRun`. Typed structurally so tests pass a fake. */
 export type StartRun = (job: RunnerJob) => Promise<RunOutcome>
 
+/**
+ * vozka's build-time deploy config — the platform credentials + propustka coordinates injected into
+ * EVERY deploy job, sourced from vozka's own Worker vars/secrets (not the per-app registry). vozka is
+ * single-account, so there is one CF account + token for the whole control plane; the propustka coords
+ * are the one propustka this account runs. WHETHER a deploy reconciles is decided by the app's config
+ * (`access`/`schema` presence) — these are always available; an app without access/schema ignores them.
+ */
+export interface DeployConfig {
+	/** The CF account id every deploy targets. */
+	cloudflareAccountId: string
+	/** The CF API token every deploy uses (account-wide). Never logged. */
+	cloudflareApiToken: string
+	/** propustka IAM base URL for the reconcile step, when configured. */
+	propustkaUrl?: string
+	/** propustka admin OAuth client id (vozka's provisioning key), when configured. Never logged. */
+	propustkaClientId?: string
+	/** propustka admin OAuth client secret, when configured. Never logged. */
+	propustkaClientSecret?: string
+}
+
 /** Everything the lifecycle needs, injected so the core is pure + testable. */
 export interface RunDeps {
 	db: Db
 	repoSource: RepoSource
 	secrets: SecretResolver
 	startRun: StartRun
-}
-
-/** The credential refs the lifecycle resolves for a deploy (account + propustka client). */
-export interface ResolvedAccount {
-	cfAccountId: string
-	/** The account's CF API token ref (resolved via SecretResolver → the real token). */
-	cfApiTokenRef: string
+	/** vozka's own platform deploy config (CF account/token + propustka coords), build-time. */
+	deploy: DeployConfig
 }
 
 /**
- * Assemble the `RunnerJob` for a run: resolve the account's CF token + the app's secret values
- * through the SecretResolver (the M4 vault seam), and build the clone URL through the RepoSource.
- * Credentials + secret VALUES are placed on the job and never logged. `dryRun` flows through so a
- * plan-only run never mutates Cloudflare.
+ * Assemble the `RunnerJob` for a run: inject vozka's build-time platform credentials (CF account/token
+ * + propustka coords) and resolve the app's per-app secret values through the SecretResolver (the
+ * vault seam), then build the clone URL through the RepoSource. Credentials + secret VALUES are placed
+ * on the job and never logged. `dryRun` flows through so a plan-only run never mutates Cloudflare.
  */
 export async function assembleJob(
 	deps: RunDeps,
 	run: RunRow,
 	app: AppRow,
 	appEnv: AppEnvRow,
-	account: ResolvedAccount,
 	options: { dryRun?: boolean } = {},
 ): Promise<RunnerJob> {
-	const cloneTarget = await deps.repoSource.clone(app.repo_url, run.ref, app.github_installation_id)
+	// Fail loud rather than deploy with an empty credential (same invariant as the secret resolver).
+	if (deps.deploy.cloudflareAccountId === '' || deps.deploy.cloudflareApiToken === '') {
+		throw new Error('Cloudflare credentials not configured (CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN)')
+	}
 
-	// Resolve the CF API token from its ref (M4: vault decrypt; v1: env/literal).
-	const cfApiToken = await deps.secrets.resolveAccountToken(account.cfApiTokenRef)
+	const cloneTarget = await deps.repoSource.clone(app.repo_url, run.ref, app.github_installation_id)
 
 	// Resolve the app's secrets for THIS env (narrower env-specific layer wins over the all-env layer).
 	const secretRows = await deps.db.getAppSecretsForEnv(app.id, appEnv.env)
@@ -79,9 +95,11 @@ export async function assembleJob(
 		ref: cloneTarget.ref,
 		env: appEnv.env,
 		credentials: {
-			CLOUDFLARE_ACCOUNT_ID: account.cfAccountId,
-			CLOUDFLARE_API_TOKEN: cfApiToken,
-			...(appEnv.propustka_url !== null ? { PROPUSTKA_URL: appEnv.propustka_url } : {}),
+			CLOUDFLARE_ACCOUNT_ID: deps.deploy.cloudflareAccountId,
+			CLOUDFLARE_API_TOKEN: deps.deploy.cloudflareApiToken,
+			...(deps.deploy.propustkaUrl !== undefined ? { PROPUSTKA_URL: deps.deploy.propustkaUrl } : {}),
+			...(deps.deploy.propustkaClientId !== undefined ? { PROPUSTKA_CLIENT_ID: deps.deploy.propustkaClientId } : {}),
+			...(deps.deploy.propustkaClientSecret !== undefined ? { PROPUSTKA_CLIENT_SECRET: deps.deploy.propustkaClientSecret } : {}),
 		},
 		...(app.worker_dir !== null ? { workerDir: app.worker_dir } : {}),
 		...(app.config_path !== null ? { configPath: app.config_path } : {}),
@@ -99,7 +117,7 @@ export interface DeployJobMessage {
 }
 
 /**
- * Execute one queued deploy: load the run + app + env + account, transition pending → running,
+ * Execute one queued deploy: load the run + app + env, transition pending → running,
  * assemble + run the job, then record the terminal outcome. Returns the final status so the queue
  * consumer can decide ack/retry. Throws are caught and recorded as a `failed` run (never re-thrown to
  * the queue as an infinite retry of an unrecoverable assembly error).
@@ -127,20 +145,8 @@ export async function executeDeploy(
 			await deps.db.markRunFinished(run.id, 'failed', null)
 			return { runId: run.id, status: 'failed' }
 		}
-		const account = await deps.db.getAccount(appEnv.account_name)
-		if (account === null) {
-			await deps.db.markRunFinished(run.id, 'failed', null)
-			return { runId: run.id, status: 'failed' }
-		}
 
-		const job = await assembleJob(
-			deps,
-			run,
-			app,
-			appEnv,
-			{ cfAccountId: account.cf_account_id, cfApiTokenRef: account.cf_api_token_ref },
-			{ ...(message.dryRun ? { dryRun: true } : {}) },
-		)
+		const job = await assembleJob(deps, run, app, appEnv, { ...(message.dryRun ? { dryRun: true } : {}) })
 
 		const outcome = await deps.startRun(job)
 		const status = outcome.status.state

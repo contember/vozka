@@ -1,12 +1,12 @@
-// Vault management handlers (M4): write-only set / rotate / delete of the encrypted secret VALUES
-// behind the registry's `*_ref` columns. ACL-gated by `secret.manage` (the router does the can-check
-// before these run) and audited. VALUES NEVER leave the vault — these endpoints accept a value, store
-// it encrypted, and write the resulting `vault:<id>` ref back onto the row. No handler ever RETURNS a
-// value, and no value is logged (audit metadata carries only names / refs / scopes).
+// Vault management handlers: write-only set / rotate / delete of the encrypted per-app secret VALUES
+// behind the registry's `app_secrets.value_ref` column. ACL-gated by `secret.manage` (the router does
+// the can-check before these run) and audited. VALUES NEVER leave the vault — these endpoints accept a
+// value, store it encrypted, and write the resulting `vault:<id>` ref back onto the row. No handler
+// ever RETURNS a value, and no value is logged (audit metadata carries only names / refs / scopes).
 //
-// Two subjects, same vault:
-//   * an ACCOUNT's CF API token value      → onto accounts.cf_api_token_ref (scope 'account', global ACL)
-//   * an APP / APP-ENV secret value        → onto app_secrets.value_ref      (scope 'app'|'app-env', app ACL)
+// The vault holds ONLY app/app-env secrets (scope 'app'|'app-env', app-scoped ACL). Platform creds
+// (the CF API token, propustka provisioning creds) are vozka's OWN Worker secrets (src/env.ts), not
+// vault entries — single-account, so there is no per-account token to manage here.
 //
 // On SET: store a fresh vault entry, then write its ref onto the row. If the row already pointed at a
 // vault ref, the old entry is deleted (no orphaned ciphertext) — unless it was a non-vault ref (e.g.
@@ -28,64 +28,6 @@ export interface VaultContext {
 	request: Request
 	url: URL
 	authorized: Authorized
-}
-
-/**
- * `PUT /api/accounts/:name/token` — set the account's CF API token VALUE (body `{ value }`). Stores it
- * in the vault and writes the `vault:<id>` ref onto accounts.cf_api_token_ref. Replaces (and deletes)
- * any prior vault entry. Write-only: returns `{ ok, cfApiTokenRef }`, never the value.
- */
-export async function setAccountToken(c: VaultContext, name: string): Promise<Response> {
-	const account = await c.db.getAccount(name)
-	if (!account) {
-		return error(404, 'account not found')
-	}
-	const value = await readValue(c.request)
-	if (value === undefined) {
-		return error(400, 'value required')
-	}
-	const ref = await c.vault.putSecret('account', `account:${name}/cf_api_token`, value)
-	await c.db.updateAccount(name, { cfApiTokenRef: ref })
-	await deletePriorVaultEntry(c.vault, account.cf_api_token_ref)
-	await c.authorized.auth.audit({
-		action: 'account.token.set',
-		resourceType: 'account',
-		resourceId: name,
-		metadata: { cfApiTokenRef: ref },
-	})
-	return json({ ok: true, cfApiTokenRef: ref })
-}
-
-/** `PATCH /api/accounts/:name/token` — re-encrypt the token VALUE in place (body `{ value }`). */
-export async function rotateAccountToken(c: VaultContext, name: string): Promise<Response> {
-	const account = await c.db.getAccount(name)
-	if (!account) {
-		return error(404, 'account not found')
-	}
-	const value = await readValue(c.request)
-	if (value === undefined) {
-		return error(400, 'value required')
-	}
-	if (parseVaultRef(account.cf_api_token_ref) === null) {
-		return error(409, 'account token is not stored in the vault — set it first')
-	}
-	await c.vault.rotate(account.cf_api_token_ref, value)
-	await c.authorized.auth.audit({ action: 'account.token.rotate', resourceType: 'account', resourceId: name })
-	return json({ ok: true })
-}
-
-/** `DELETE /api/accounts/:name/token` — remove the vault entry for the account's token (ref left dangling). */
-export async function deleteAccountToken(c: VaultContext, name: string): Promise<Response> {
-	const account = await c.db.getAccount(name)
-	if (!account) {
-		return error(404, 'account not found')
-	}
-	if (parseVaultRef(account.cf_api_token_ref) === null) {
-		return error(409, 'account token is not stored in the vault')
-	}
-	const removed = await c.vault.delete(account.cf_api_token_ref)
-	await c.authorized.auth.audit({ action: 'account.token.delete', resourceType: 'account', resourceId: name })
-	return json({ ok: removed })
 }
 
 /**
@@ -171,12 +113,6 @@ export async function deleteAppSecretValue(c: VaultContext, appId: string, name:
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-
-/** Read the write-only `{ value }` body. undefined when absent or not a string (caller 400s). */
-async function readValue(request: Request): Promise<string | undefined> {
-	const body = await readJson(request)
-	return stringField(body, 'value')
-}
 
 /** The secret layer: `?env=` (query) or `env` (body); empty/absent → null (the all-env layer). */
 function readEnv(url: URL, body: unknown): string | null {

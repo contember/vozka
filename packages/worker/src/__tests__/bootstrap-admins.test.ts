@@ -42,7 +42,7 @@ describe('parseBootstrapAdmins', () => {
 describe('withBootstrapAdmins fallback', () => {
 	test('a listed admin email is authorized for an action the underlying client denies', async () => {
 		const iam = withBootstrapAdmins(lowPrivClient(['boss@vozka.test', 'nobody@vozka.test']), new Set(['boss@vozka.test']))
-		const result = await authorize(iam, reqAs('boss@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('boss@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(true)
 	})
 
@@ -54,9 +54,9 @@ describe('withBootstrapAdmins fallback', () => {
 		}
 	})
 
-	test('a NON-listed email still gets the underlying decision (denied account.manage → 403)', async () => {
+	test('a NON-listed email still gets the underlying decision (denied app.manage → 403)', async () => {
 		const iam = withBootstrapAdmins(lowPrivClient(['boss@vozka.test', 'nobody@vozka.test']), new Set(['boss@vozka.test']))
-		const result = await authorize(iam, reqAs('nobody@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('nobody@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(false)
 		if (!result.ok) {
 			expect(result.response.status).toBe(403)
@@ -74,7 +74,7 @@ describe('withBootstrapAdmins fallback', () => {
 		// can't rescue it because there is no verified email to match.
 		const base = new FakeIamClient({ personas: {}, defaultPersona: 'ghost@vozka.test' })
 		const iam = withBootstrapAdmins(base, new Set(['ghost@vozka.test']))
-		const result = await authorize(iam, reqAs('ghost@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('ghost@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(false)
 		if (!result.ok) {
 			expect(result.response.status).toBe(403)
@@ -98,7 +98,7 @@ describe('withBootstrapAdmins fallback', () => {
 			}),
 			new Set(['svc@vozka.test']),
 		)
-		const result = await authorize(iam, reqAs('svc@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('svc@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(false)
 		if (!result.ok) {
 			expect(result.response.status).toBe(403)
@@ -115,15 +115,15 @@ describe('createIam wires the fallback from VOZKA_BOOTSTRAP_ADMINS', () => {
 	test('local (DEV) with a bootstrap admin: the default persona (admin@vozka.test) is the dev admin anyway', async () => {
 		// In DEV the default persona is admin@vozka.test (already `*`). Use a viewer persona to prove the
 		// bootstrap override kicks in: viewer@vozka.test holds only deploy.read, but listing it as a
-		// bootstrap admin lets it manage accounts.
+		// bootstrap admin lets it manage apps.
 		const iam = createIam({ DEV: 'true', VOZKA_BOOTSTRAP_ADMINS: '["viewer@vozka.test"]' })
-		const result = await authorize(iam, reqAs('viewer@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('viewer@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(true)
 	})
 
-	test('local (DEV) with no bootstrap admins: a viewer persona is still denied account.manage', async () => {
+	test('local (DEV) with no bootstrap admins: a viewer persona is still denied app.manage', async () => {
 		const iam = createIam({ DEV: 'true', VOZKA_BOOTSTRAP_ADMINS: '[]' })
-		const result = await authorize(iam, reqAs('viewer@vozka.test'), ACTIONS.ACCOUNT_MANAGE)
+		const result = await authorize(iam, reqAs('viewer@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(false)
 		if (!result.ok) {
 			expect(result.response.status).toBe(403)

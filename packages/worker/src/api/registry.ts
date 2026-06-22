@@ -1,12 +1,13 @@
-// Registry + onboarding REST handlers: CRUD for accounts, apps, app_envs, app_secrets, plus the
-// onboarding action `registerApp` (the "paste a repo + domain" entry that creates the app + its first
-// app_env in one call). Every handler is ACL-gated by the router (src/api/router.ts) before it runs.
+// Registry + onboarding REST handlers: CRUD for apps, app_envs, app_secrets, plus the onboarding
+// action `registerApp` (the "paste a repo + domain" entry that creates the app + its first app_env in
+// one call). Every handler is ACL-gated by the router (src/api/router.ts) before it runs.
 //
-// Mutations audit through the authenticated `AuthContext` (propustka `audit`). Secrets are stored as
-// REFERENCES only — `value_ref` / `cf_api_token_ref` — the plaintext vault is M4 (see secret-
-// resolver.ts). A create endpoint accepts a ref, never a raw value.
+// Mutations audit through the authenticated `AuthContext` (propustka `audit`). Secret VALUES are stored
+// as REFERENCES only (`value_ref`) — the plaintext vault is in src/vault.ts. A create endpoint accepts
+// a ref, never a raw value. vozka is single-account, so there is no `accounts` resource: the CF
+// account/token + propustka coords are vozka's own Worker config (src/env.ts).
 
-import type { AccountRow, AppEnvRow, AppRow, AppSecretRow, Db } from '../db'
+import type { AppEnvRow, AppRow, AppSecretRow, Db } from '../db'
 import { error, json, readJson } from '../http'
 import type { Authorized } from '../iam'
 import { arrayField, booleanField, nullableStringField, numberField, stringField } from '../json'
@@ -23,9 +24,6 @@ export interface RegistryContext {
 
 // ── DTO mappers (snake_case row → camelCase API; secrets stay refs) ────────────
 
-function toAccountDto(row: AccountRow): unknown {
-	return { name: row.name, cfAccountId: row.cf_account_id, cfApiTokenRef: row.cf_api_token_ref, createdAt: row.created_at }
-}
 function toAppDto(row: AppRow): unknown {
 	return {
 		id: row.id,
@@ -42,9 +40,7 @@ function toAppEnvDto(row: AppEnvRow): unknown {
 	return {
 		appId: row.app_id,
 		env: row.env,
-		accountName: row.account_name,
 		domain: row.domain,
-		propustkaUrl: row.propustka_url,
 		triggerRef: row.trigger_ref,
 		createdAt: row.created_at,
 	}
@@ -53,59 +49,6 @@ function toAppSecretDto(row: AppSecretRow): unknown {
 	// value_ref IS exposed (it's a reference, not the value) — the dashboard needs to show which ref a
 	// secret maps to. The actual value never leaves the vault (M4).
 	return { appId: row.app_id, env: row.env, name: row.name, valueRef: row.value_ref, createdAt: row.created_at }
-}
-
-// ── Accounts ────────────────────────────────────────────────────────────────
-
-export async function listAccounts(c: RegistryContext): Promise<Response> {
-	const rows = await c.db.listAccounts()
-	return json({ items: rows.map(toAccountDto) })
-}
-
-export async function getAccount(c: RegistryContext, name: string): Promise<Response> {
-	const row = await c.db.getAccount(name)
-	return row ? json(toAccountDto(row)) : error(404, 'account not found')
-}
-
-export async function createAccount(c: RegistryContext): Promise<Response> {
-	const body = await readJson(c.request)
-	const name = stringField(body, 'name')
-	const cfAccountId = stringField(body, 'cfAccountId')
-	const cfApiTokenRef = stringField(body, 'cfApiTokenRef')
-	if (!name || !cfAccountId || !cfApiTokenRef) {
-		return error(400, 'name, cfAccountId and cfApiTokenRef required')
-	}
-	if (await c.db.getAccount(name)) {
-		return error(409, 'an account with this name already exists')
-	}
-	const row = await c.db.createAccount({ name, cfAccountId, cfApiTokenRef })
-	await c.authorized.auth.audit({ action: 'account.create', resourceType: 'account', resourceId: name, metadata: { cfAccountId } })
-	return json(toAccountDto(row), { status: 201 })
-}
-
-export async function updateAccount(c: RegistryContext, name: string): Promise<Response> {
-	const existing = await c.db.getAccount(name)
-	if (!existing) {
-		return error(404, 'account not found')
-	}
-	const body = await readJson(c.request)
-	const cfAccountId = stringField(body, 'cfAccountId')
-	const cfApiTokenRef = stringField(body, 'cfApiTokenRef')
-	const row = await c.db.updateAccount(name, {
-		...(cfAccountId !== undefined ? { cfAccountId } : {}),
-		...(cfApiTokenRef !== undefined ? { cfApiTokenRef } : {}),
-	})
-	await c.authorized.auth.audit({ action: 'account.update', resourceType: 'account', resourceId: name })
-	return row ? json(toAccountDto(row)) : error(404, 'account not found')
-}
-
-export async function deleteAccount(c: RegistryContext, name: string): Promise<Response> {
-	const ok = await c.db.deleteAccount(name)
-	if (!ok) {
-		return error(404, 'account not found')
-	}
-	await c.authorized.auth.audit({ action: 'account.delete', resourceType: 'account', resourceId: name })
-	return json({ ok: true })
 }
 
 // ── Apps ──────────────────────────────────────────────────────────────────────
@@ -202,22 +145,14 @@ export async function putAppEnv(c: RegistryContext, appId: string, env: string):
 		return error(404, 'app not found')
 	}
 	const body = await readJson(c.request)
-	const accountName = stringField(body, 'accountName')
-	if (!accountName) {
-		return error(400, 'accountName required')
-	}
-	if (!(await c.db.getAccount(accountName))) {
-		return error(400, 'unknown account')
-	}
 	const domain = nullableStringField(body, 'domain') ?? null
-	const propustkaUrl = nullableStringField(body, 'propustkaUrl') ?? null
 	const triggerRef = nullableStringField(body, 'triggerRef') ?? null
-	const row = await c.db.upsertAppEnv({ appId, env, accountName, domain, propustkaUrl, triggerRef })
+	const row = await c.db.upsertAppEnv({ appId, env, domain, triggerRef })
 	await c.authorized.auth.audit({
 		action: 'app.env.upsert',
 		resourceType: 'app_env',
 		resourceId: `${appId}/${env}`,
-		metadata: { accountName, triggerRef },
+		metadata: { triggerRef },
 	})
 	return json(toAppEnvDto(row))
 }
@@ -280,34 +215,29 @@ export async function deleteAppSecret(c: RegistryContext, appId: string, name: s
 
 /**
  * The "paste a repo + domain" entry: create the app + its first app_env in one call. Idempotency is
- * left to the caller (a duplicate id is a 409). The account must already exist. Optional fields shape
- * the registry rows (worker dir, build cmd, trigger ref, propustka url, install id).
+ * left to the caller (a duplicate id is a 409). Optional fields shape the registry rows (worker dir,
+ * build cmd, domain, trigger ref, install id). The deploy target account is vozka's own (single-account).
  */
 export async function registerApp(c: RegistryContext): Promise<Response> {
 	const body = await readJson(c.request)
 	const id = stringField(body, 'id')
 	const repoUrl = stringField(body, 'repoUrl')
 	const env = stringField(body, 'env')
-	const accountName = stringField(body, 'account')
-	if (!id || !repoUrl || !env || !accountName) {
-		return error(400, 'id, repoUrl, env and account required')
-	}
-	if (!(await c.db.getAccount(accountName))) {
-		return error(400, 'unknown account')
+	if (!id || !repoUrl || !env) {
+		return error(400, 'id, repoUrl and env required')
 	}
 	if (await c.db.getApp(id)) {
 		return error(409, 'an app with this id already exists')
 	}
 	const app = await c.db.createApp({ id, repoUrl: normalizeRepoUrl(repoUrl), ...optionalAppFields(body) })
 	const domain = nullableStringField(body, 'domain') ?? null
-	const propustkaUrl = nullableStringField(body, 'propustkaUrl') ?? null
 	const triggerRef = nullableStringField(body, 'triggerRef') ?? null
-	const appEnv = await c.db.upsertAppEnv({ appId: id, env, accountName, domain, propustkaUrl, triggerRef })
+	const appEnv = await c.db.upsertAppEnv({ appId: id, env, domain, triggerRef })
 	await c.authorized.auth.audit({
 		action: 'app.create',
 		resourceType: 'app',
 		resourceId: id,
-		metadata: { repoUrl, env, account: accountName, onboarding: true },
+		metadata: { repoUrl, env, onboarding: true },
 	})
 	return json({ app: toAppDto(app), env: toAppEnvDto(appEnv) }, { status: 201 })
 }

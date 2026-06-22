@@ -44,15 +44,12 @@ function req(method: string, path: string, body?: unknown): Request {
 describe('onboarding + registry CRUD', () => {
 	test('registerApp creates the app + its first app_env in one call', async () => {
 		const { deps } = makeDeps()
-		// Account must exist first.
-		await handleApi(req('POST', '/api/accounts', { name: 'acc', cfAccountId: 'cf-1', cfApiTokenRef: 'env:CF' }), deps)
 
 		const response = await handleApi(
 			req('POST', '/api/register-app', {
 				id: 'acme',
 				repoUrl: 'https://github.com/acme/App.git',
 				env: 'prod',
-				account: 'acc',
 				domain: 'acme.example.com',
 				triggerRef: 'refs/heads/deploy/prod',
 			}),
@@ -63,31 +60,28 @@ describe('onboarding + registry CRUD', () => {
 		// App row exists with the NORMALIZED repo URL.
 		const app = await deps.db.getApp('acme')
 		expect(app?.repo_url).toBe('github.com/acme/App')
-		// And its prod env row, pointing at the account + trigger ref.
+		// And its prod env row, with the domain + trigger ref.
 		const env = await deps.db.getAppEnv('acme', 'prod')
-		expect(env?.account_name).toBe('acc')
 		expect(env?.domain).toBe('acme.example.com')
 		expect(env?.trigger_ref).toBe('refs/heads/deploy/prod')
 	})
 
-	test('registerApp rejects an unknown account (400) and a duplicate id (409)', async () => {
+	test('registerApp rejects a missing field (400) and a duplicate id (409)', async () => {
 		const { deps } = makeDeps()
-		const unknownAcc = await handleApi(req('POST', '/api/register-app', { id: 'x', repoUrl: 'r', env: 'prod', account: 'nope' }), deps)
-		expect(unknownAcc.status).toBe(400)
+		const missing = await handleApi(req('POST', '/api/register-app', { id: 'x', repoUrl: 'r' }), deps)
+		expect(missing.status).toBe(400) // env required
 
-		await handleApi(req('POST', '/api/accounts', { name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' }), deps)
-		await handleApi(req('POST', '/api/register-app', { id: 'dup', repoUrl: 'r', env: 'prod', account: 'acc' }), deps)
-		const dup = await handleApi(req('POST', '/api/register-app', { id: 'dup', repoUrl: 'r', env: 'stage', account: 'acc' }), deps)
+		await handleApi(req('POST', '/api/register-app', { id: 'dup', repoUrl: 'r', env: 'prod' }), deps)
+		const dup = await handleApi(req('POST', '/api/register-app', { id: 'dup', repoUrl: 'r', env: 'stage' }), deps)
 		expect(dup.status).toBe(409)
 	})
 
-	test('accounts / apps / app_envs / secrets CRUD round-trips', async () => {
+	test('apps / app_envs / secrets CRUD round-trips', async () => {
 		const { deps } = makeDeps()
-		await handleApi(req('POST', '/api/accounts', { name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' }), deps)
 		await handleApi(req('POST', '/api/apps', { id: 'app', repoUrl: 'https://github.com/acme/app' }), deps)
 
 		// app_env upsert
-		const putEnv = await handleApi(req('PUT', '/api/apps/app/envs/prod', { accountName: 'acc', triggerRef: 'refs/heads/deploy/prod' }), deps)
+		const putEnv = await handleApi(req('PUT', '/api/apps/app/envs/prod', { triggerRef: 'refs/heads/deploy/prod' }), deps)
 		expect(putEnv.status).toBe(200)
 
 		// secret upsert (a vault REFERENCE, not a value)
@@ -111,23 +105,15 @@ describe('onboarding + registry CRUD', () => {
 		expect(delApp.status).toBe(200)
 		expect(await deps.db.getAppEnv('app', 'prod')).toBeNull()
 	})
-
-	test('putAppEnv rejects an unknown account (400)', async () => {
-		const { deps } = makeDeps()
-		await handleApi(req('POST', '/api/apps', { id: 'app', repoUrl: 'r' }), deps)
-		const response = await handleApi(req('PUT', '/api/apps/app/envs/prod', { accountName: 'ghost' }), deps)
-		expect(response.status).toBe(400)
-	})
 })
 
 describe('run history API', () => {
 	test('lists runs newest-first and filters by app/env', async () => {
 		const { deps } = makeDeps()
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await deps.db.createApp({ id: 'a', repoUrl: 'r1' })
 		await deps.db.createApp({ id: 'b', repoUrl: 'r2' })
-		await deps.db.upsertAppEnv({ appId: 'a', env: 'prod', accountName: 'acc' })
-		await deps.db.upsertAppEnv({ appId: 'b', env: 'prod', accountName: 'acc' })
+		await deps.db.upsertAppEnv({ appId: 'a', env: 'prod' })
+		await deps.db.upsertAppEnv({ appId: 'b', env: 'prod' })
 		const r1 = uuidv7()
 		await deps.db.createRun({ id: r1, appId: 'a', env: 'prod', ref: 'main', trigger: 'manual' })
 		const r2 = uuidv7()
@@ -150,9 +136,8 @@ describe('run history API', () => {
 
 	test('getRunLog reads + parses the NDJSON log from R2', async () => {
 		const { deps, logStore } = makeDeps()
-		await deps.db.createAccount({ name: 'acc', cfAccountId: 'cf', cfApiTokenRef: 'env:T' })
 		await deps.db.createApp({ id: 'a', repoUrl: 'r' })
-		await deps.db.upsertAppEnv({ appId: 'a', env: 'prod', accountName: 'acc' })
+		await deps.db.upsertAppEnv({ appId: 'a', env: 'prod' })
 		const runId = uuidv7()
 		await deps.db.createRun({ id: runId, appId: 'a', env: 'prod', ref: 'main', trigger: 'manual' })
 		await deps.db.markRunStarted(runId, logsKey(runId))

@@ -9,16 +9,16 @@ Design rationale: see `/home/matej21/.claude/plans/quiet-strolling-stearns.md`.
 
 ## What's built (M0–M5, all committed)
 
-| Pkg / area | What |
-|---|---|
-| `oblaka` (sibling repo) | New programmatic `deploy(definition, {accountId, apiToken, env, …})` API. |
-| `@vozka/config` | `defineApp({ id, resources, access?, schema?, pipeline? })`; re-exports oblaka primitives + propustka types. |
-| `@vozka/core` | Deploy engine: builds a plan (build → provision → migrate → deploy-worker → reconcile-schema/access → sync-secrets) and runs it via an injectable `DeployRuntime`. `vozka` CLI (`deploy --env [--config] [--dry-run]`). |
-| `@vozka/runner` | Runner container: Dockerfile (Ubuntu + git + bun + wrangler + baked `vozka`); in-container job server (`POST /run` → clone → install → `vozka deploy`, NDJSON log stream, status/exit). |
-| `@vozka/worker` | Control plane: D1 registry (accounts/apps/app_envs/app_secrets/runs), REST `/api` + GitHub webhook + manual trigger → Queue → consumer → `startRun` (RunnerContainer DO) → relay logs→R2 + status→D1; propustka ACL on every route; encrypted secret vault (AES-256-GCM) + multi-account injection; `vozka.config.ts` (self) + bootstrap/seed scripts. |
-| `@vozka/dashboard` | buzola SPA: onboarding (paste repo + domain), apps/envs/secrets, runs with live log tail, accounts. Served via worker `ASSETS`. |
+| Pkg / area              | What                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `oblaka` (sibling repo) | New programmatic `deploy(definition, {accountId, apiToken, env, …})` API.                                                                                                                                                                                                                                                                                                                                                          |
+| `@vozka/config`         | `defineApp({ id, resources, access?, schema?, pipeline? })`; re-exports oblaka primitives + propustka types.                                                                                                                                                                                                                                                                                                                       |
+| `@vozka/core`           | Deploy engine: builds a plan (build → provision → migrate → deploy-worker → reconcile-schema/access → sync-secrets) and runs it via an injectable `DeployRuntime`. `vozka` CLI (`deploy --env [--config] [--dry-run]`).                                                                                                                                                                                                            |
+| `@vozka/runner`         | Runner container: Dockerfile (Ubuntu + git + bun + wrangler + baked `vozka`); in-container job server (`POST /run` → clone → install → `vozka deploy`, NDJSON log stream, status/exit).                                                                                                                                                                                                                                            |
+| `@vozka/worker`         | Control plane: D1 registry (apps/app_envs/app_secrets/runs), REST `/api` + GitHub webhook + manual trigger → Queue → consumer → `startRun` (RunnerContainer DO) → relay logs→R2 + status→D1; propustka ACL on every route; encrypted per-app secret vault (AES-256-GCM); single-account build-time deploy config (CF account/token + propustka coords injected into every job); `vozka.config.ts` (self) + bootstrap/seed scripts. |
+| `@vozka/dashboard`      | buzola SPA: onboarding (paste repo + domain), apps/envs/secrets, runs with live log tail. Served via worker `ASSETS`.                                                                                                                                                                                                                                                                                                              |
 
-**Verified locally:** `bun run typecheck` (all 5 packages) ✓ · `bun test` **141 pass / 0 fail** ✓ ·
+**Verified locally:** `bun run typecheck` (all 5 packages) ✓ · `bun test` **136 pass / 0 fail** ✓ ·
 biome lint (infos only) ✓ · dprint ✓ · runner Docker image builds & smoke-runs ✓ · D1 migrations
 apply `--local` ✓ · offline dry-run builds the full 7-step plan (incl. vozka's own self-deploy) ✓.
 
@@ -28,19 +28,23 @@ Nothing below was executed; all of it requires real accounts/credentials.
 
 1. **Publish oblaka** with the new programmatic `deploy()` (currently vozka resolves it via a
    root `overrides: { "oblaka-iac": "file:../oblaka" }`). Once published, drop the override.
-2. **Cloudflare creds:** account id + API token for **contember** and **mangoweb**.
+2. **Cloudflare creds:** account id + API token for the **single account** vozka runs on and deploys
+   into (propustka + vozka + the apps all share it). A second account gets its own propustka + vozka.
 3. **Deploy propustka first** (its own `scripts/provision-access.ts` — sets up its Access front
    door), then **mint a vozka provisioning key** (propustka `POST /admin/api-keys`) →
    `PROPUSTKA_ACCESS_CLIENT_ID/SECRET`.
 4. **GitHub App:** register one (repo contents read + webhooks); install on the app repos;
    capture the App private key + webhook secret.
-5. **Worker secrets for vozka:** `VOZKA_VAULT_KEY` (32 random bytes, base64 — the vault master
-   key), `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`. (Optional: a CF **Secrets Store**
-   for per-account CF tokens via `secretstore:<name>` refs; otherwise store them in the D1 vault.)
-6. **Bootstrap (one-time):** run `packages/worker/scripts/bootstrap.ts` with creds in env and
-   `VOZKA_BOOTSTRAP_ADMINS=["you@…"]` to deploy vozka itself. Then `scripts/seed.ts` to register
-   accounts (contember/mangoweb) + apps (vozka, propustka). Once propustka grants you admin, set
-   `VOZKA_BOOTSTRAP_ADMINS=[]` and redeploy to close the escape hatch.
+5. **Worker secrets + vars for vozka** (all declared in `vozka.config.ts`, set by bootstrap):
+   secrets `VOZKA_VAULT_KEY` (32 random bytes, base64 — the vault master key),
+   `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `CLOUDFLARE_API_TOKEN` (the account-wide deploy
+   token — vozka deploys every app with it), `PROPUSTKA_CLIENT_ID` / `PROPUSTKA_CLIENT_SECRET` (the
+   propustka provisioning key); vars `CLOUDFLARE_ACCOUNT_ID` + `PROPUSTKA_URL`. These platform creds
+   are injected into every deploy job (single-account — no per-account registry).
+6. **Bootstrap (one-time):** run `packages/worker/scripts/bootstrap.ts` with the creds above in env and
+   `VOZKA_BOOTSTRAP_ADMINS=["you@…"]` to deploy vozka itself. Then `scripts/seed.ts` to register the
+   apps (vozka, propustka). Once propustka grants you admin, set `VOZKA_BOOTSTRAP_ADMINS=[]` and
+   redeploy to close the escape hatch.
 7. **Onboard the rest:** install the GitHub App + paste domain for poplach/revizor/opice.
 8. **Migrate apps (incremental):** consolidate each app's `oblaka.ts` + `propustka.schema.ts` +
    `propustka.access.ts` into one `vozka.config.ts`; read `env`/`domain` from context. Until

@@ -49,7 +49,7 @@ describe('Vault crypto (AES-256-GCM envelope)', () => {
 		const { d1, sqlite } = createHarness()
 		const vault = await Vault.create(d1, testKey())
 		const plaintext = 'PLAINTEXT-MARKER-9f3a'
-		const ref = await vault.putSecret('account', 'account:acc/cf_api_token', plaintext)
+		const ref = await vault.putSecret('app', 'app:app/*/API_KEY', plaintext)
 		const id = parseVaultRef(ref)
 		const rows = queryRows(sqlite, 'SELECT * FROM vault WHERE id = ?', id)
 		expect(JSON.stringify(rows[0])).not.toContain(plaintext)

@@ -12,15 +12,11 @@ import { error } from '../http'
 import { appScope, type Authenticator, authorize, envScope } from '../iam'
 import type { Vault } from '../vault'
 import {
-	createAccount,
 	createApp,
-	deleteAccount,
 	deleteApp,
 	deleteAppEnv,
 	deleteAppSecret,
-	getAccount,
 	getApp,
-	listAccounts,
 	listAppEnvs,
 	listApps,
 	listAppSecrets,
@@ -28,19 +24,10 @@ import {
 	putAppSecret,
 	registerApp,
 	type RegistryContext,
-	updateAccount,
 	updateApp,
 } from './registry'
 import { type DeployQueue, getRun, getRunLog, listRuns, type R2Reader, type RunsContext, tailRunLog, triggerDeploy } from './runs'
-import {
-	deleteAccountToken,
-	deleteAppSecretValue,
-	rotateAccountToken,
-	rotateAppSecretValue,
-	setAccountToken,
-	setAppSecretValue,
-	type VaultContext,
-} from './vault'
+import { deleteAppSecretValue, rotateAppSecretValue, setAppSecretValue, type VaultContext } from './vault'
 
 /**
  * Everything the router needs (the Worker assembles this from its bindings). `vault` is a FACTORY
@@ -108,43 +95,6 @@ async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Resp
 	}
 
 	switch (resource) {
-		// ── Accounts (account.manage, global) ──────────────────────────────────
-		case 'accounts': {
-			if (id === undefined) {
-				if (method === 'GET') {
-					const a = await authorize(deps.iam, request, ACTIONS.ACCOUNT_MANAGE)
-					const c = registryCtx(a)
-					return c instanceof Response ? c : listAccounts(c)
-				}
-				if (method === 'POST') {
-					const a = await authorize(deps.iam, request, ACTIONS.ACCOUNT_MANAGE)
-					const c = registryCtx(a)
-					return c instanceof Response ? c : createAccount(c)
-				}
-				return methodNotAllowed()
-			}
-			// Nested: /api/accounts/:name/token — the CF API token VALUE (secret.manage, global).
-			// The token value lives in the vault; setting/rotating/deleting it is a SECRET operation.
-			// PUT = set, PATCH = rotate in place, DELETE = drop the vault entry. Write-only (no GET).
-			if (sub === 'token') {
-				const a = await authorize(deps.iam, request, ACTIONS.SECRET_MANAGE)
-				const c = await vaultCtx(a)
-				if (c instanceof Response) return c
-				if (method === 'PUT') return setAccountToken(c, id)
-				if (method === 'PATCH') return rotateAccountToken(c, id)
-				if (method === 'DELETE') return deleteAccountToken(c, id)
-				return methodNotAllowed()
-			}
-
-			const a = await authorize(deps.iam, request, ACTIONS.ACCOUNT_MANAGE)
-			const c = registryCtx(a)
-			if (c instanceof Response) return c
-			if (method === 'GET') return getAccount(c, id)
-			if (method === 'PUT' || method === 'PATCH') return updateAccount(c, id)
-			if (method === 'DELETE') return deleteAccount(c, id)
-			return methodNotAllowed()
-		}
-
 		// ── Onboarding (app.manage, global) ────────────────────────────────────
 		case 'register-app': {
 			if (method !== 'POST') return methodNotAllowed()

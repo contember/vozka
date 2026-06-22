@@ -141,6 +141,13 @@ describe('Pipeline', () => {
 	test('workerDir is the worker package, build builds the dashboard, secrets are the runtime worker secrets', () => {
 		expect(config.pipeline?.workerDir).toBe('.')
 		expect(config.pipeline?.build).toContain('@vozka/dashboard')
-		expect(config.pipeline?.secrets).toEqual(['VOZKA_VAULT_KEY', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_WEBHOOK_SECRET'])
+		expect(config.pipeline?.secrets).toEqual([
+			'VOZKA_VAULT_KEY',
+			'GITHUB_APP_PRIVATE_KEY',
+			'GITHUB_WEBHOOK_SECRET',
+			'CLOUDFLARE_API_TOKEN',
+			'PROPUSTKA_CLIENT_ID',
+			'PROPUSTKA_CLIENT_SECRET',
+		])
 	})
 })

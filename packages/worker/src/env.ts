@@ -33,6 +33,18 @@ export interface Env {
 	/** Public domain this stage serves on (drives absolute URLs); empty when unknown. */
 	VOZKA_DOMAIN?: string
 	/**
+	 * The SINGLE Cloudflare account every deploy targets (vozka is single-account: propustka + vozka +
+	 * the apps it deploys all live on one account). Not secret — injected into every deploy job's
+	 * `CLOUDFLARE_ACCOUNT_ID`. See migrations/0003 (the per-account registry was removed).
+	 */
+	CLOUDFLARE_ACCOUNT_ID?: string
+	/**
+	 * propustka IAM base URL injected into every deploy so an app reconciles its schema/access into
+	 * propustka. Platform-wide (one propustka per account); WHETHER a deploy reconciles is decided by
+	 * the app's own config (`access`/`schema` presence), not the registry.
+	 */
+	PROPUSTKA_URL?: string
+	/**
 	 * JSON array of bootstrap-admin emails (normally `'[]'`). When a caller's email is in this list,
 	 * src/iam.ts authorizes them as admin even if propustka denies / the IAM binding isn't wired yet —
 	 * the escape hatch for the FIRST operator before propustka knows about vozka. Mirrors propustka's
@@ -47,6 +59,15 @@ export interface Env {
 	GITHUB_APP_ID?: string
 	/** GitHub App PEM private key — signs the App JWT. NEVER logged. */
 	GITHUB_APP_PRIVATE_KEY?: string
+	/**
+	 * The Cloudflare API token vozka deploys with (account-wide) — injected into every deploy job's
+	 * `CLOUDFLARE_API_TOKEN`. Single-account: one token for the whole control plane. NEVER logged.
+	 */
+	CLOUDFLARE_API_TOKEN?: string
+	/** propustka admin OAuth client id (vozka's provisioning key) — injected for the reconcile step. NEVER logged. */
+	PROPUSTKA_CLIENT_ID?: string
+	/** propustka admin OAuth client secret (vozka's provisioning key). NEVER logged. */
+	PROPUSTKA_CLIENT_SECRET?: string
 	/**
 	 * The vault MASTER key (KEK) for the encrypted D1 secret vault — 32 raw bytes, base64. Seals every
 	 * per-value data key (src/vault.ts). Provisioned out-of-band, once per environment:

@@ -4,7 +4,6 @@ import { RunStatusBadge } from '../../components/Badge'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Table } from '../../components/Table'
 import {
-	type AccountDto,
 	api,
 	ApiError,
 	type AppDto,
@@ -27,18 +26,17 @@ import { fmtDate, qs, shortRef, shortSha } from '../../lib/format'
 export default createPage()
 	.params({ id: 'string' })
 	.loader(async ({ params }) => {
-		const [app, envs, secrets, accounts, runs] = await Promise.all([
+		const [app, envs, secrets, runs] = await Promise.all([
 			api.get<AppDto>(`/apps/${params.id}`),
 			api.get<ListResponse<AppEnvDto>>(`/apps/${params.id}/envs`),
 			api.get<ListResponse<AppSecretDto>>(`/apps/${params.id}/secrets`),
-			api.get<ListResponse<AccountDto>>('/accounts'),
 			api.get<CursorList<RunDto>>(`/runs${qs({ app: params.id, limit: 10 })}`),
 		])
-		return { app, envs: envs.items, secrets: secrets.items, accounts: accounts.items, runs: runs.items }
+		return { app, envs: envs.items, secrets: secrets.items, runs: runs.items }
 	})
 	.route('/apps/:id')
 	.render(({ data, invalidate }) => {
-		const { app, envs, secrets, accounts, runs } = data
+		const { app, envs, secrets, runs } = data
 		const [confirming, setConfirming] = useState(false)
 		const navigate = useNavigate()
 
@@ -87,23 +85,21 @@ export default createPage()
 						<h2>Environments</h2>
 					</div>
 					<Table
-						colSpan={6}
+						colSpan={4}
 						isEmpty={envs.length === 0}
 						empty="No environments. Add one below."
 						head={
 							<tr>
 								<th>Env</th>
-								<th>Account</th>
 								<th>Domain</th>
 								<th>Trigger ref</th>
-								<th>propustka</th>
 								<th />
 							</tr>
 						}
 					>
-						{envs.map((env) => <EnvRow key={env.env} appId={app.id} env={env} accounts={accounts} onDone={invalidate} />)}
+						{envs.map((env) => <EnvRow key={env.env} appId={app.id} env={env} onDone={invalidate} />)}
 					</Table>
-					<AddEnvForm appId={app.id} accounts={accounts} existing={envs} onDone={invalidate} />
+					<AddEnvForm appId={app.id} existing={envs} onDone={invalidate} />
 				</section>
 
 				<section>
@@ -207,7 +203,7 @@ function DeployButton({ appId, env }: { appId: string; env: AppEnvDto }) {
 	)
 }
 
-function EnvRow({ appId, env, accounts, onDone }: { appId: string; env: AppEnvDto; accounts: AccountDto[]; onDone: () => void }) {
+function EnvRow({ appId, env, onDone }: { appId: string; env: AppEnvDto; onDone: () => void }) {
 	const [editing, setEditing] = useState(false)
 	const [confirming, setConfirming] = useState(false)
 
@@ -220,7 +216,6 @@ function EnvRow({ appId, env, accounts, onDone }: { appId: string; env: AppEnvDt
 		return (
 			<EnvForm
 				appId={appId}
-				accounts={accounts}
 				env={env.env}
 				initial={env}
 				onDone={() => {
@@ -237,10 +232,8 @@ function EnvRow({ appId, env, accounts, onDone }: { appId: string; env: AppEnvDt
 			<td>
 				<strong>{env.env}</strong>
 			</td>
-			<td>{env.accountName}</td>
 			<td>{env.domain === null ? <span className="muted">—</span> : env.domain}</td>
 			<td>{env.triggerRef === null ? <span className="muted">manual-only</span> : <code>{shortRef(env.triggerRef)}</code>}</td>
-			<td>{env.propustkaUrl === null ? <span className="muted">—</span> : <code className="small">{env.propustkaUrl}</code>}</td>
 			<td className="row-actions">
 				<DeployButton appId={appId} env={env} />
 				<button type="button" className="small" onClick={() => setEditing(true)}>Edit</button>
@@ -265,9 +258,8 @@ function EnvRow({ appId, env, accounts, onDone }: { appId: string; env: AppEnvDt
 
 /** Shared env editor — an inline table row form for both edit and add. */
 function EnvForm(
-	{ appId, accounts, env, initial, onDone, onCancel, lockEnv = true }: {
+	{ appId, env, initial, onDone, onCancel, lockEnv = true }: {
 		appId: string
-		accounts: AccountDto[]
 		env: string
 		initial: AppEnvDto | null
 		onDone: () => void
@@ -276,10 +268,8 @@ function EnvForm(
 	},
 ) {
 	const [envName, setEnvName] = useState(env)
-	const [accountName, setAccountName] = useState(initial?.accountName ?? accounts[0]?.name ?? '')
 	const [domain, setDomain] = useState(initial?.domain ?? '')
 	const [triggerRef, setTriggerRef] = useState(initial?.triggerRef ?? '')
-	const [propustkaUrl, setPropustkaUrl] = useState(initial?.propustkaUrl ?? '')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
@@ -288,10 +278,8 @@ function EnvForm(
 		setError(null)
 		try {
 			const body: PutAppEnvRequest = {
-				accountName,
 				domain: domain.trim() === '' ? null : domain.trim(),
 				triggerRef: triggerRef.trim() === '' ? null : triggerRef.trim(),
-				propustkaUrl: propustkaUrl.trim() === '' ? null : propustkaUrl.trim(),
 			}
 			await api.put(`/apps/${appId}/envs/${envName.trim()}`, body)
 			onDone()
@@ -309,22 +297,14 @@ function EnvForm(
 					: <input aria-label="Env" value={envName} onChange={(e) => setEnvName(e.target.value)} placeholder="stage" />}
 			</td>
 			<td>
-				<select aria-label="Account" value={accountName} onChange={(e) => setAccountName(e.target.value)}>
-					{accounts.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
-				</select>
-			</td>
-			<td>
 				<input aria-label="Domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="store.acme.com" />
 			</td>
 			<td>
 				<input aria-label="Trigger ref" value={triggerRef} onChange={(e) => setTriggerRef(e.target.value)} placeholder="refs/heads/main" />
-			</td>
-			<td>
-				<input aria-label="propustka URL" value={propustkaUrl} onChange={(e) => setPropustkaUrl(e.target.value)} placeholder="https://iam…" />
 				{error && <div className="error-text small">{error}</div>}
 			</td>
 			<td className="row-actions">
-				<button type="button" className="primary small" onClick={save} disabled={busy || accountName === '' || envName.trim() === ''}>
+				<button type="button" className="primary small" onClick={save} disabled={busy || envName.trim() === ''}>
 					{busy ? 'Saving…' : 'Save'}
 				</button>
 				<button type="button" className="small" onClick={onCancel} disabled={busy}>Cancel</button>
@@ -333,12 +313,8 @@ function EnvForm(
 	)
 }
 
-function AddEnvForm({ appId, accounts, existing, onDone }: { appId: string; accounts: AccountDto[]; existing: AppEnvDto[]; onDone: () => void }) {
+function AddEnvForm({ appId, existing, onDone }: { appId: string; existing: AppEnvDto[]; onDone: () => void }) {
 	const [open, setOpen] = useState(false)
-
-	if (accounts.length === 0) {
-		return <p className="hint">Add a Cloudflare account before adding an environment.</p>
-	}
 
 	if (!open) {
 		return (
@@ -354,7 +330,6 @@ function AddEnvForm({ appId, accounts, existing, onDone }: { appId: string; acco
 				<tbody>
 					<EnvForm
 						appId={appId}
-						accounts={accounts}
 						env={existing.length === 0 ? 'prod' : ''}
 						initial={null}
 						lockEnv={false}

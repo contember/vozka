@@ -10,7 +10,7 @@ bun run dev                                       # lopata dev on :18291 (DEV=tr
 bunx wrangler d1 migrations apply DB --local      # apply migrations to the local D1
 bun run oblaka                                     # regenerate wrangler.jsonc (plan/dry)
 bun run bootstrap                                  # deploy vozka itself (needs real CF creds + env)
-bun run seed                                       # register accounts + apps
+bun run seed                                       # register apps (single-account: no account registry)
 ```
 
 `wrangler.jsonc` is auto-generated from `oblaka.ts` — DO NOT edit it by hand.
@@ -32,7 +32,13 @@ logs→R2 + status→D1. Env/bindings shape: `src/env.ts`. Schema: `migrations/*
 - **Vault (`src/vault.ts`): envelope AES-256-GCM**, KEK from `VOZKA_VAULT_KEY` (never in D1, never logged).
   Secret VALUES are write-only over the API; D1 stores only ciphertext + wrapped DEK. Losing the KEK is unrecoverable by design.
 - **Secrets resolve by ref scheme** (`src/secret-resolver.ts`): `vault:` / `secretstore:` / `env:` / `literal:`.
-  An unknown / unresolvable ref THROWS — never deploy with an empty credential.
+  An unknown / unresolvable ref THROWS — never deploy with an empty credential. The resolver handles ONLY
+  per-app `pipeline.secrets`; platform creds are vozka's own Worker config (below).
+- **Single-account + build-time deploy config.** vozka deploys into ONE Cloudflare account (its own).
+  The CF account/token (`CLOUDFLARE_ACCOUNT_ID` var + `CLOUDFLARE_API_TOKEN` secret) and propustka coords
+  (`PROPUSTKA_URL` var + `PROPUSTKA_CLIENT_ID`/`_SECRET` secrets) live in `src/env.ts`, are declared in
+  `vozka.config.ts`, and are injected into EVERY deploy job by `run-lifecycle.assembleJob`. There is NO
+  `accounts` registry table; WHETHER a deploy reconciles is decided by the app's config (`access`/`schema`).
 - **Run lifecycle is status-guarded + idempotent** (`src/run-lifecycle.ts`): `markRunStarted` only moves
   pending→running, so a redelivered queue message is a no-op. ack handled runs; retry only on an unexpected throw.
 - **Never log a secret/credential** (see root). The run row is written before the queue is touched (durable trigger).
