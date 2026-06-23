@@ -2,8 +2,8 @@
 // whole engine path locally (resource graph + plan + every step in plan-only mode) without touching
 // real Cloudflare or propustka. NOT a published artifact; it lives under fixtures/ on purpose.
 
-import { D1Database, defineApp, KVNamespace, Worker } from '@vozka/config'
-import type { AppAccess, AppSchema } from '@vozka/config'
+import { D1Database, defineApp, KVNamespace, Worker } from 'vozka-config'
+import type { AppAccess, AppSchema } from 'vozka-config'
 
 // The app's authz vocabulary — reconciled into propustka (only when PROPUSTKA_URL is set).
 const schema: AppSchema = {

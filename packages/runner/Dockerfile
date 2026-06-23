@@ -1,6 +1,6 @@
 # vozka CI runner image.
 #
-# Bakes in the (unpublished) vozka deploy toolchain — @vozka/config + @vozka/core (the `vozka`
+# Bakes in the (unpublished) vozka deploy toolchain — vozka-config + @vozka/core (the `vozka`
 # CLI) + @vozka/runner (the in-container server) — alongside git, node, bun and wrangler, so a
 # spawned container can clone a target app, `bun install` it, and run `vozka deploy` against its
 # config.
@@ -36,7 +36,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 # wrangler on PATH globally: the deploy step shells out to a bare `wrangler` (deploy-worker /
 # d1 migrations / secret put) with cwd = the target repo, so it must resolve regardless of cwd.
-# Pinned to match the version @vozka/core + @vozka/config build against (no version skew at deploy).
+# Pinned to match the version @vozka/core + vozka-config build against (no version skew at deploy).
 RUN bun install -g wrangler@4.72.0
 
 WORKDIR /opt/vozka

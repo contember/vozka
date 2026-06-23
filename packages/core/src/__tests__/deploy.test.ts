@@ -1,6 +1,6 @@
-import type { AppAccess, AppConfig, AppSchema } from '@vozka/config'
-import { D1Database, Worker } from '@vozka/config'
 import { beforeEach, describe, expect, test } from 'bun:test'
+import type { AppAccess, AppConfig, AppSchema } from 'vozka-config'
+import { D1Database, Worker } from 'vozka-config'
 import { deploy } from '../deploy'
 import type { CommandResult, CommandSpec, DeployRuntime, ProvisionInput } from '../runtime'
 import type { DeployContext } from '../types'

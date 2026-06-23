@@ -1,4 +1,4 @@
-// @vozka/config — the single app-authoring surface. An app imports ONLY from here: it gets
+// vozka-config — the single app-authoring surface. An app imports ONLY from here: it gets
 // `defineApp` + its config types, every oblaka resource primitive (Worker, D1Database,
 // KVNamespace, R2Bucket, Queue, DurableObject, Container, ServiceReference, define, …), and the
 // propustka edge/authz declaration types — so a `vozka.config.ts` never imports `oblaka-iac` or

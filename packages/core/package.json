@@ -29,7 +29,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@vozka/config": "workspace:*"
+		"vozka-config": "workspace:*"
 	},
 	"peerDependencies": {
 		"@propustka/client": "^0.0.5",

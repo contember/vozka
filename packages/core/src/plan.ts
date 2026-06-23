@@ -2,8 +2,8 @@
 // and in WHAT order, materializing a `DeployPlan` of `JobSpec`s. The orchestrator (`deploy.ts`)
 // executes the plan; nothing here touches Cloudflare, propustka, or the shell.
 
-import type { AppConfig } from '@vozka/config'
 import { D1Database, type Worker } from 'oblaka-iac'
+import type { AppConfig } from 'vozka-config'
 import type { DeployContext, DeployPlan, JobSpec } from './types'
 
 /** One D1 database that carries migrations — what a `migrate` step applies. */

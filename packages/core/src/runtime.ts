@@ -5,8 +5,8 @@
 // just does what it's told.
 
 import { reconcileAccess, reconcileSchema } from '@propustka/client'
-import type { AppAccess, AppSchema } from '@vozka/config'
 import { type Definition, deploy as oblakaDeploy, type DeployResult as OblakaDeployResult } from 'oblaka-iac'
+import type { AppAccess, AppSchema } from 'vozka-config'
 
 /** A single shell-out: the command + its argv, the cwd, extra env, and optional stdin. */
 export interface CommandSpec {

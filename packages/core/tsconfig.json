@@ -3,7 +3,7 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"types": ["@cloudflare/workers-types", "@types/bun"],
-		// See the note in packages/config/tsconfig.json: `@vozka/core` imports `@vozka/config`, which
+		// See the note in packages/config/tsconfig.json: `@vozka/core` imports `vozka-config`, which
 		// re-exports oblaka-iac's raw TS source, so the same one-flag relaxation applies here. Our own
 		// code stays fully strict otherwise.
 		"noUncheckedIndexedAccess": false,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import type { AppConfig } from '@vozka/config'
 import { resolve } from 'node:path'
+import type { AppConfig } from 'vozka-config'
 import { deploy } from './deploy'
 import type { DeployContext, DeployResult } from './types'
 

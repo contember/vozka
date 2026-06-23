@@ -27,14 +27,14 @@ Per-package dev/build commands live in each package's CLAUDE.md (core, worker, r
 ## Project Structure
 
 ```
-packages/config/      # @vozka/config — the app-authoring surface (defineApp + re-exports). 3 files; covered here.
+packages/config/      # vozka-config — the app-authoring surface (defineApp + re-exports). 3 files; covered here.
 packages/core/        # @vozka/core — deploy engine + the `vozka` CLI.        → CLAUDE.md
 packages/worker/      # @vozka/worker — the control-plane Worker.             → CLAUDE.md
 packages/runner/      # @vozka/runner — the CI/container deploy runner.       → CLAUDE.md
 packages/dashboard/   # @vozka/dashboard — buzola + React SPA.               → CLAUDE.md
 ```
 
-`@vozka/config` is the single import an app authors from — it bundles `defineApp` with every oblaka
+`vozka-config` is the single import an app authors from — it bundles `defineApp` with every oblaka
 resource primitive and the propustka declaration types, so a `vozka.config.ts` never imports
 `oblaka-iac` or `@propustka/core` directly.
 

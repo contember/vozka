@@ -1,4 +1,4 @@
-import type { AppConfig } from '@vozka/config'
+import type { AppConfig } from 'vozka-config'
 
 /**
  * Where a secret lives in the control plane's scoping hierarchy, widest → narrowest:

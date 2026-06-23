@@ -1,5 +1,5 @@
 // LOCAL-DEV / oblaka entry for vozka's infrastructure. THIN by design: the resource graph itself
-// lives in `vozka.config.ts` (the single source of truth, dogfooding @vozka/config), and this file
+// lives in `vozka.config.ts` (the single source of truth, dogfooding vozka-config), and this file
 // just adapts it to oblaka's `define` so the local flows keep working unchanged:
 //   - `bun run oblaka`        → regenerate wrangler.jsonc (plan/dry)
 //   - `bun run oblaka:deploy` → remote provision (off-local, manual)

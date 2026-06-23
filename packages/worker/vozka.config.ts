@@ -1,4 +1,4 @@
-// vozka's OWN deploy surface — DOGFOODING `@vozka/config`. vozka is just another app the control
+// vozka's OWN deploy surface — DOGFOODING `vozka-config`. vozka is just another app the control
 // plane deploys: this single file is the source of truth for vozka's Cloudflare resource graph, its
 // Cloudflare Access front door, its authz vocabulary, and its deploy pipeline. The `vozka deploy`
 // path (packages/core CLI / scripts/bootstrap.ts) loads THIS to self-deploy.
@@ -11,8 +11,8 @@
 // Secrets are never inlined: the GitHub App key/webhook secret + the M4 vault key are declared by
 // NAME in `pipeline.secrets` and provisioned out-of-band (`wrangler secret put` / `.dev.vars`).
 
-import type { AppAccess, AppSchema, ResourceContext } from '@vozka/config'
-import { Container, D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from '@vozka/config'
+import type { AppAccess, AppSchema, ResourceContext } from 'vozka-config'
+import { Container, D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from 'vozka-config'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from './src/actions'
 
 /** Container instance type per stage — dev locally, larger off-local; any other env → basic. */

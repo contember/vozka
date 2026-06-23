@@ -1,6 +1,6 @@
-import type { AppConfig } from '@vozka/config'
 import { resolve } from 'node:path'
 import type { Worker } from 'oblaka-iac'
+import type { AppConfig } from 'vozka-config'
 import { buildPlan, findMigratableDatabases } from './plan'
 import { defaultRuntime, type DeployRuntime } from './runtime'
 import type { DeployContext, DeployResult, DeployStep, JobSpec, RunStatus } from './types'

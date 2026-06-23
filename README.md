@@ -16,7 +16,7 @@ pipeline — from a single config file, then drives provisioning + deployment fr
 
 | Package              | Name               | What it is                                                                                                                                                                                          |
 | -------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/config`    | `@vozka/config`    | The app-authoring surface. `defineApp()` plus re-exported `oblaka-iac` resource primitives and propustka `AppAccess`/`AppSchema` types, so an app authors its whole deploy surface from one import. |
+| `packages/config`    | `vozka-config`     | The app-authoring surface. `defineApp()` plus re-exported `oblaka-iac` resource primitives and propustka `AppAccess`/`AppSchema` types, so an app authors its whole deploy surface from one import. |
 | `packages/core`      | `@vozka/core`      | Deploy engine types + `deploy()` and the `vozka` CLI. M0 ships the contracts and CLI plumbing; the real engine is M1.                                                                               |
 | `packages/worker`    | `@vozka/worker`    | The control-plane Worker (`WorkerEntrypoint`). Skeleton only; built in M3.                                                                                                                          |
 | `packages/dashboard` | `@vozka/dashboard` | A [buzola](https://github.com/contember/buzola) + React SPA for the control plane. Skeleton only; built in M3.                                                                                      |
@@ -25,7 +25,7 @@ pipeline — from a single config file, then drives provisioning + deployment fr
 ## Authoring an app
 
 ```ts
-import { defineApp, Worker } from '@vozka/config'
+import { defineApp, Worker } from 'vozka-config'
 
 export default defineApp({
 	id: 'my-app',

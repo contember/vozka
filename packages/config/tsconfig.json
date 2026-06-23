@@ -4,7 +4,7 @@
 		"noEmit": true,
 		"types": ["@cloudflare/workers-types", "@types/bun"],
 		// oblaka-iac ships raw TS (`main: ./src/index.ts`) authored against plain `strict` — its
-		// source (e.g. `utils/migrations.ts`) trips `noUncheckedIndexedAccess`. Because `@vozka/config`
+		// source (e.g. `utils/migrations.ts`) trips `noUncheckedIndexedAccess`. Because `vozka-config`
 		// re-exports oblaka so apps author from one import, tsc pulls oblaka's source into this program.
 		// We relax ONLY these flags here (not in the base config) to accommodate the dependency's
 		// source; all our own code in this package is still fully strict otherwise.
