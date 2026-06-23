@@ -8,7 +8,7 @@ Cloudflare account — never one vozka spanning accounts (vozka is single-accoun
 | Account       | propustka | Apps deployed via `.github/workflows/deploy.yml`            |
 | ------------- | --------- | ----------------------------------------------------------- |
 | **contember** | live      | **opice** (`deploy/prod` only), **poplach** (`deploy/prod`) |
-| **mangoweb**  | _verify_  | **poplach** (`deploy/mangoweb` → second CF account)         |
+| **mangoweb**  | live      | **poplach** (`deploy/mangoweb` → second CF account)         |
 
 Each app's `deploy.yml` runs: `oblaka oblaka.ts --env --state-namespace=<app>-state --remote` →
 `wrangler d1 migrations apply` → `bun run build` → `wrangler deploy` → propustka reconcile
@@ -38,8 +38,9 @@ contember CF account              mangoweb CF account
   its envs' `trigger_ref`. The existing branch convention routes cleanly:
   `deploy/prod` → contember only, `deploy/mangoweb` → mangoweb only (a vozka ignores non-matching refs —
   `getAppEnvByTriggerRef` returns nothing).
-- **Env naming:** call each account's env `prod` (the account is the boundary). The mangoweb vozka maps
-  its `prod` env to `trigger_ref = refs/heads/deploy/mangoweb`. (Decision below.)
+- **Env naming:** each account's env is `prod` (the account is the boundary — no `mangoweb` env). The
+  mangoweb vozka maps its `prod` env to `trigger_ref = refs/heads/deploy/mangoweb`; contember's `prod` to
+  `refs/heads/deploy/prod`. `stage` is dropped — migrated apps run `prod` only.
 
 ## Prerequisites
 
@@ -68,12 +69,11 @@ Order: **opice first** (single-account, no mangoweb target → simplest), then *
 target only; leave its `deploy/mangoweb` target on the old pipeline until Phase 4). Use the per-app
 recipe below.
 
-## Phase 3 — mangoweb control plane
+## Phase 3 — mangoweb control plane (propustka already live)
 
-1. **propustka⟨mangoweb⟩:** if it doesn't exist yet, deploy it + bootstrap its Access front door (its own
-   `scripts/provision-access.ts`) on the mangoweb account; then mint a vozka key. If it already exists,
-   just mint the key. _(Open item — verify.)_
-2. `bootstrap.ts` **locally** against the **mangoweb** account → vozka⟨mangoweb⟩.
+1. Mint a vozka provisioning key from the **existing** mangoweb propustka.
+2. `bootstrap.ts` **locally** against the **mangoweb** account → vozka⟨mangoweb⟩ (reconciles its own
+   Access/schema into mangoweb propustka).
 3. `seed.ts` + install the **mangoweb GitHub App** + verify self-deploy + close the escape hatch.
 
 ## Phase 4 — migrate the mangoweb target (poplach)
@@ -119,12 +119,10 @@ recipe below.
   to each other. During cutover, deploy a given target through exactly ONE path at a time. Both paths are
   idempotent against the same `<app>-state`, so falling back to the old workflow mid-migration is safe.
 
-## Open decisions
+## Decisions (settled)
 
-1. **Env naming** — call the mangoweb account's env `prod` (recommended; account is the boundary) vs keep
-   `mangoweb` as an env name.
-2. **propustka⟨mangoweb⟩** — does it already exist (→ just mint a key) or need bootstrapping (Phase 3.1)?
-3. **`stage` env** — today a `workflow_dispatch` `stage` exists. Carry it into vozka as another env, or
-   drop it for the migrated apps?
-4. **GitHub Apps** — confirm two Apps (one per org). Alternative (one App, webhook fan-out) is more
-   complex and not recommended.
+1. **Env naming** — each account's env is `prod`; no `mangoweb` env name. The account is the boundary.
+2. **propustka⟨mangoweb⟩** — already live → Phase 3 just mints a key (no bootstrap).
+3. **`stage` env** — dropped; migrated apps run `prod` only.
+4. **GitHub Apps** — two Apps, one per org (own webhook URL + install). Chosen over one-App webhook
+   fan-out (simpler, fully independent control planes).
