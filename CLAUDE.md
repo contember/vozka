@@ -64,5 +64,6 @@ resource primitive and the propustka declaration types, so a `vozka.config.ts` n
 - `packages/runner/CLAUDE.md` — Read when: touching the container image, the in-container server, or the Worker↔container protocol.
 - `packages/dashboard/CLAUDE.md` — Read when: touching the SPA — routes, the API client, DTOs, or the buzola codegen.
 
-Project background: `HANDOFF.md` (the deploy boundary + open decisions) and the design rationale at
+Project background: `HANDOFF.md` (the deploy boundary + open decisions), `MIGRATION.md` (moving
+contember + mangoweb off GitHub Actions onto vozka), and the design rationale at
 `~/.claude/plans/quiet-strolling-stearns.md`.
