@@ -5,6 +5,7 @@ import { Db } from './db'
 import type { Env } from './env'
 import { createIam } from './iam'
 import { type ContainerLike, type RelayResult, relayRun } from './relay'
+import { pollPublicRepos } from './repo-poll'
 import { GitHubAppRepoSource, type RepoSource } from './repo-source'
 import { type DeployJobMessage, executeDeploy, type RunDeps, type RunOutcome } from './run-lifecycle'
 import { VaultSecretResolver } from './secret-resolver'
@@ -124,6 +125,25 @@ export class Vozka extends WorkerEntrypoint<Env> {
 				message.retry()
 			}
 		}
+	}
+
+	/**
+	 * The cron handler (triggers.crons in vozka.config.ts, every 5 min): poll PUBLIC repos (apps with no
+	 * GitHub App install, which therefore get no push webhook) for new commits and enqueue a deploy when
+	 * a subscribed ref's head changes — the pull-based trigger alongside the webhook. A poll-created run
+	 * is serialized by the same per-app-env deploy lock as any other run (the queue consumer takes it).
+	 * Logs counts only — never a feed URL or any secret.
+	 */
+	override async scheduled(_controller: ScheduledController): Promise<void> {
+		const summary = await pollPublicRepos({
+			db: new Db(this.env.DB),
+			fetch,
+			queue: this.env.DEPLOY_QUEUE,
+			now: () => Math.floor(Date.now() / 1000),
+		})
+		console.info(
+			`repo poll: polled=${summary.polled} triggered=${summary.triggered} unchanged=${summary.unchanged} errored=${summary.errored} skipped=${summary.skipped}`,
+		)
 	}
 
 	/** Assemble the run-lifecycle deps from the Worker bindings (startRun adapted to RunOutcome). */

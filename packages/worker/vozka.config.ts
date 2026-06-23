@@ -47,6 +47,9 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 		compatibility_flags: ['nodejs_compat'],
 		compatibility_date: '2025-05-25',
 		observability: { enabled: true },
+		// Cron trigger driving `scheduled` (src/index.ts): poll PUBLIC repos (no GitHub App install)
+		// for new commits every 5 minutes — the pull-based deploy trigger alongside the push webhook.
+		triggers: { crons: ['*/5 * * * *'] },
 		assets: {
 			// The dashboard SPA (built by @vozka/dashboard, M3b) served for non-API paths.
 			directory: '../dashboard/dist',

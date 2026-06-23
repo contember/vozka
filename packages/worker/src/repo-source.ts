@@ -3,10 +3,11 @@
 // testable with a FakeRepoSource (no GitHub, no network), and so a future public-repo direct-clone or
 // polling source can slot in.
 //
-// PUBLIC-REPO DIRECT-CLONE + POLLING are a deliberate POST-V1 SEAM: a public repo needs no token
-// (the clone URL is the repo URL), and polling would replace the webhook for sources without one. We
-// do NOT build polling here — `GitHubAppRepoSource` is the v1 implementation; a `PublicRepoSource`
-// would implement the same interface with `subscribe` polling instead of webhook verification.
+// PUBLIC-REPO DIRECT-CLONE: a public repo needs no token (the clone URL is the repo URL), so
+// `clone()` returns the bare URL when no installation id is given. Public repos have no webhook, so
+// their deploy trigger is PULLED instead: see `src/repo-poll.ts` (a cron-driven Atom-feed poller), wired
+// in `src/index.ts` `scheduled`. Polling lives there (standalone — no webhook HMAC applies to a public
+// feed), not as a `RepoSource` method; this interface stays focused on clone + webhook verification.
 
 import { prop, stringField } from './json'
 

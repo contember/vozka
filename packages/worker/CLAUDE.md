@@ -22,6 +22,11 @@ surface · everything else → dashboard `ASSETS`. A trigger writes a `pending` 
 `queue()` consumes (one run/message) → `executeDeploy` → `startRun` (RunnerContainer DO) → relay
 logs→R2 + status→D1. Env/bindings shape: `src/env.ts`. Schema: `migrations/*.sql`.
 
+Three deploy TRIGGERS, all converging on the same `createRun` + enqueue: (1) the GitHub-App push
+webhook (`src/webhook.ts`, private repos); (2) the manual Deploy button (`triggerDeploy`); (3) the cron
+poller (`src/repo-poll.ts`, wired in `scheduled`) for PUBLIC repos with no App install — it conditional-
+GETs the repo's commits/tags Atom feed (ETag) and enqueues on a new head sha (`runs.trigger='poll'`).
+
 ## Invariants
 
 - **ACL on every `/api/*` route.** Each handler calls `authorize(iam, request, ACTION, scope?)` before
