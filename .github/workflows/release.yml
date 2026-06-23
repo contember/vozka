@@ -4,14 +4,12 @@ name: Release
 # (packages/config). Nothing else is published — @vozka/core (the CLI) is baked into the runner image,
 # and worker/runner/dashboard are the vozka app itself. Triggered by a `v*` tag.
 #
-# Steady state: trusted publishing via OIDC — no token, automatic provenance. The FIRST publish of a
-# brand-new package name can NOT use OIDC (npm has no "pending publisher": the trusted-publisher config
-# is per-package and the package must exist first — npm/cli#8544). So bootstrap ONCE:
-#   1. add a temporary `NPM_TOKEN` repo secret (a granular token with publish rights for `vozka-config`)
-#   2. push `v0.0.1` → this workflow publishes via that token (provenance still attaches via id-token)
-#   3. on npmjs.com → vozka-config → Settings → add a GitHub Actions trusted publisher
-#        (repo `contember/vozka`, workflow `release.yml`)
-#   4. delete the `NPM_TOKEN` secret — every later `v*` tag then publishes token-less via OIDC
+# CI publishes via npm trusted publishing — OIDC, no token, automatic provenance. The FIRST publish of
+# a brand-new package name can NOT use OIDC (npm has no "pending publisher": the trusted-publisher
+# config is per-package and the package must exist first — npm/cli#8544), so v0.0.1 is published ONCE
+# locally (`cd packages/config && npm publish --access public`). After that, configure the trusted
+# publisher on npmjs.com (vozka-config → Settings → GitHub Actions: repo `contember/vozka`, workflow
+# `release.yml`), and every later `v*` tag publishes token-less via this workflow.
 
 on:
   push:
@@ -55,8 +53,5 @@ jobs:
 
       - name: Publish vozka-config to npm
         working-directory: packages/config
-        # Token-less once a trusted publisher is configured; NODE_AUTH_TOKEN is used only for the
-        # one-time bootstrap publish (empty/unset afterward → OIDC takes over). Provenance is automatic.
+        # Token-less via the configured trusted publisher (OIDC); provenance is automatic.
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
