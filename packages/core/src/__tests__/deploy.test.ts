@@ -173,6 +173,16 @@ describe('step execution — collaborators + args', () => {
 		expect(p?.cwd).toBe('/work/worker')
 	})
 
+	test('provision uses a per-app state namespace (`<id>-state`) so apps in one account never collide', async () => {
+		await deploy(makeConfig({ id: 'poplach' }), makeCtx(), makeRuntime(rec))
+		expect(rec.provisions[0]?.stateNamespace).toBe('poplach-state')
+	})
+
+	test('ctx.stateNamespace overrides the derived default (for an app whose existing namespace differs)', async () => {
+		await deploy(makeConfig({ id: 'poplach' }), makeCtx({ stateNamespace: 'legacy-ns' }), makeRuntime(rec))
+		expect(rec.provisions[0]?.stateNamespace).toBe('legacy-ns')
+	})
+
 	test('migrate runs `wrangler d1 migrations apply <db> --remote` with cred env', async () => {
 		const config = makeConfig({
 			resources: () =>

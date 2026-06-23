@@ -43,6 +43,14 @@ export interface DeployContext {
 	/** Absolute path the config was loaded from; build + relative paths resolve here. */
 	cwd: string
 	/**
+	 * oblaka state KV namespace name — where the deploy's resource state lives in the target account.
+	 * Defaults to `<app id>-state` (the per-app convention the legacy `oblaka … --state-namespace=<app>-state`
+	 * pipelines used). Per-app so deploys of different apps into the SAME account never collide (oblaka keys
+	 * state by env within the namespace), and so a migrated app's first vozka deploy CONTINUES its existing
+	 * state instead of re-provisioning. Override only for an app whose existing namespace differs from the default.
+	 */
+	stateNamespace?: string
+	/**
 	 * Plan-only mode. When set, the engine builds the plan, runs oblaka with `dryRun:true` (never
 	 * `remote`), and SKIPS every real Cloudflare/propustka mutation — `wrangler deploy`,
 	 * `wrangler d1 migrations apply`, `wrangler secret put`, and the propustka reconciles — logging

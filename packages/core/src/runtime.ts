@@ -42,6 +42,8 @@ export interface ProvisionInput {
 	apiToken: string
 	env: string
 	cwd: string
+	/** oblaka state KV namespace name (per-app, e.g. `poplach-state`) so apps in one account don't collide. */
+	stateNamespace: string
 	/** When set, oblaka runs in plan-only mode (no remote, nothing written to disk). */
 	dryRun: boolean
 }
@@ -90,6 +92,7 @@ const defaultProvision: OblakaProvisioner = (input) =>
 		apiToken: input.apiToken,
 		env: input.env,
 		cwd: input.cwd,
+		stateNamespace: input.stateNamespace,
 		// A real provision writes wrangler.jsonc + mutates Cloudflare; a dry-run does neither.
 		remote: !input.dryRun,
 		dryRun: input.dryRun,

@@ -55,6 +55,9 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 		}
 
 		case 'provision-resources': {
+			// Per-app state namespace (`<app id>-state` by default) so apps sharing one account don't
+			// collide on oblaka's env-keyed state, and a migrated app continues its existing state.
+			const stateNamespace = ctx.stateNamespace ?? `${config.id}-state`
 			// oblaka always runs — in dry-run it provisions in plan-only mode (no remote, no writes),
 			// which still materializes the resource graph + wrangler config so the path is exercised.
 			const result = await runtime.provision({
@@ -63,6 +66,7 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 				apiToken: ctx.apiToken,
 				env: ctx.env,
 				cwd: dir,
+				stateNamespace,
 				dryRun,
 			})
 			const names = result.wranglerConfigs.map((c) => c.config.name ?? '(unnamed)').join(', ')

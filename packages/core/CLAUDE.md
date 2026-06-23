@@ -22,6 +22,10 @@ executes it. Assumes the root CLAUDE.md.
 - **Shell args are an argv array, never a single shell string** (`CommandSpec.args`) — no shell, no injection.
   Exception: the user's `pipeline.build` runs via `sh -c` by design.
 - **Creds are required even in dry-run** (oblaka needs them to materialize the resource graph).
+- **oblaka state is per-app: `<app id>-state`** (overridable via `ctx.stateNamespace`). oblaka keys state by
+  env WITHIN the namespace, so apps sharing one account MUST have distinct namespaces or they overwrite each
+  other; the default matches the legacy `--state-namespace=<app>-state` pipelines, so a migrated app's first
+  vozka deploy continues its existing state instead of re-provisioning.
 
 ## Tests
 
