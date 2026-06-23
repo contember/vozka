@@ -1,0 +1,35 @@
+name: CI
+
+# Check-only: lint, format, types, tests. vozka has NO deploy workflow by design —
+# it is a deploy control plane and deploys itself through its own pipeline (initial
+# bootstrap locally, then self-deploy on push via the running control plane), never
+# via GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Format check
+        run: bun run format:check
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
