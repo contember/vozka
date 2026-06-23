@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { feedUrlFor, type FetchFn, parseLatestEntry, pollPublicRepos } from '../repo-poll'
+import { feedUrlFor, type FetchFn, parseLatestEntry, parseLatestTag, pollPublicRepos } from '../repo-poll'
 import type { DeployJobMessage } from '../run-lifecycle'
 import { createHarness } from './helpers/harness'
 
@@ -81,6 +81,49 @@ describe('parseLatestEntry', () => {
 		expect(parseLatestEntry('<feed></feed>')).toBeNull()
 		expect(parseLatestEntry('<entry><id>no sha here</id></entry>')).toBeNull()
 		expect(parseLatestEntry('not xml at all')).toBeNull()
+	})
+})
+
+// ── parseLatestTag (newest tag matching a pattern) ────────────────────────────
+
+/** A realistic GitHub tags-feed snippet, newest tag first. */
+function tagsFeed(...tags: string[]): string {
+	const entries = tags
+		.map(
+			(t) =>
+				`	<entry>
+		<id>tag:github.com,2008:Repository/12345/${t}</id>
+		<link type="text/html" rel="alternate" href="https://github.com/acme/app/releases/tag/${t}"/>
+		<title>${t}</title>
+	</entry>`,
+		)
+		.join('\n')
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+	<id>tag:github.com,2008:/acme/app/tags</id>
+${entries}
+</feed>`
+}
+
+describe('parseLatestTag', () => {
+	test('returns the newest tag matching a v* pattern', () => {
+		expect(parseLatestTag(tagsFeed('v2.0.0', 'v1.0.0'), 'refs/tags/v*')).toBe('v2.0.0')
+	})
+
+	test('skips a newer non-matching tag and returns the newest that DOES match', () => {
+		// `release-9` is newest but doesn't match `v*`; `v1.5.0` is the newest that does.
+		expect(parseLatestTag(tagsFeed('release-9', 'v1.5.0', 'v1.4.0'), 'refs/tags/v*')).toBe('v1.5.0')
+	})
+
+	test('an exact tag trigger_ref matches only that tag', () => {
+		expect(parseLatestTag(tagsFeed('v1.2.3', 'v1.2.2'), 'refs/tags/v1.2.3')).toBe('v1.2.3')
+		expect(parseLatestTag(tagsFeed('v1.2.2', 'v1.2.1'), 'refs/tags/v1.2.3')).toBeNull()
+	})
+
+	test('returns null when no tag matches / the feed is empty', () => {
+		expect(parseLatestTag(tagsFeed('release-1', 'alpha'), 'refs/tags/v*')).toBeNull()
+		expect(parseLatestTag('<feed></feed>', 'refs/tags/v*')).toBeNull()
+		expect(parseLatestTag('', 'refs/tags/v*')).toBeNull()
 	})
 })
 
@@ -295,6 +338,61 @@ describe('pollPublicRepos', () => {
 
 		expect(summary).toEqual({ polled: 0, triggered: 0, unchanged: 0, errored: 0, skipped: 1 })
 		expect(calls).toHaveLength(0)
+	})
+
+	test('a v* tag-pattern env polls the tags feed and deploys the newest matching tag (concrete ref)', async () => {
+		const { db } = createHarness()
+		await db.createApp({ id: 'app', repoUrl: REPO })
+		await db.upsertAppEnv({ appId: 'app', env: 'release', triggerRef: 'refs/tags/v*' })
+		const queue = makeQueue()
+		const { fetch, calls } = fakeFetch({
+			'https://github.com/acme/app/tags.atom': { status: 200, ok: true, etag: '"t1"', body: tagsFeed('v2.0.0', 'v1.0.0') },
+		})
+
+		const summary = await pollPublicRepos({ db, fetch, queue, now: () => NOW })
+
+		expect(summary).toEqual({ polled: 1, triggered: 1, unchanged: 0, errored: 0, skipped: 0 })
+		expect(calls[0]?.url).toBe('https://github.com/acme/app/tags.atom')
+		const runs = await db.listRuns({ limit: 10 })
+		expect(runs).toHaveLength(1)
+		expect(runs[0]?.ref).toBe('refs/tags/v2.0.0') // the resolved concrete tag, not the pattern
+		expect(runs[0]?.commit_sha).toBeNull() // the tags feed carries no commit sha
+		expect(runs[0]?.trigger).toBe('poll')
+		// The cursor stored is the tag name.
+		const state = await db.getRepoPollState('app', 'release')
+		expect(state?.last_seen_sha).toBe('v2.0.0')
+		expect(state?.etag).toBe('"t1"')
+	})
+
+	test('a tag env whose newest matching tag is unchanged creates no run', async () => {
+		const { db } = createHarness()
+		await db.createApp({ id: 'app', repoUrl: REPO })
+		await db.upsertAppEnv({ appId: 'app', env: 'release', triggerRef: 'refs/tags/v*' })
+		await db.upsertRepoPollState({ appId: 'app', env: 'release', etag: '"old"', lastSeenSha: 'v2.0.0', lastPolledAt: NOW - 300 })
+		const queue = makeQueue()
+		const { fetch } = fakeFetch({
+			'https://github.com/acme/app/tags.atom': { status: 200, ok: true, etag: '"t2"', body: tagsFeed('v2.0.0', 'v1.0.0') },
+		})
+
+		const summary = await pollPublicRepos({ db, fetch, queue, now: () => NOW })
+
+		expect(summary).toEqual({ polled: 1, triggered: 0, unchanged: 1, errored: 0, skipped: 0 })
+		expect(queue.sent).toHaveLength(0)
+	})
+
+	test('a tag env with no matching tag yet is unchanged (no run), not an error', async () => {
+		const { db } = createHarness()
+		await db.createApp({ id: 'app', repoUrl: REPO })
+		await db.upsertAppEnv({ appId: 'app', env: 'release', triggerRef: 'refs/tags/v*' })
+		const queue = makeQueue()
+		const { fetch } = fakeFetch({
+			'https://github.com/acme/app/tags.atom': { status: 200, ok: true, etag: '"t"', body: tagsFeed('release-1', 'alpha') },
+		})
+
+		const summary = await pollPublicRepos({ db, fetch, queue, now: () => NOW })
+
+		expect(summary).toEqual({ polled: 1, triggered: 0, unchanged: 1, errored: 0, skipped: 0 })
+		expect(await db.listRuns({ limit: 10 })).toHaveLength(0)
 	})
 })
 

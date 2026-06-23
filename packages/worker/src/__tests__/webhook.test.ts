@@ -114,6 +114,38 @@ describe('handleWebhook (HMAC + ref→env)', () => {
 		expect(queue.sent).toHaveLength(0)
 	})
 
+	test('a v* tag pattern env triggers on a matching tag push; the DEPLOYED ref is the concrete tag', async () => {
+		const { db } = createHarness()
+		const cloneUrl = 'https://github.com/acme/app.git'
+		await db.createApp({ id: 'app', repoUrl: normalizeRepoUrl(cloneUrl) })
+		await db.upsertAppEnv({ appId: 'app', env: 'release', triggerRef: 'refs/tags/v*' })
+		const queue = makeQueue()
+		const request = await pushWebhookRequest({ ref: 'refs/tags/v1.2.3', cloneUrl, after: 'sha-tag', secret: SECRET })
+
+		const response = await handleWebhook(request, { db, repoSource: new FakeRepoSource({ webhookSecret: SECRET }), queue })
+
+		expect(response.status).toBe(200)
+		const body = (await response.json()) as { triggered: string[] }
+		expect(body.triggered).toHaveLength(1)
+		const run = await db.getRun(body.triggered[0]!)
+		expect(run?.env).toBe('release')
+		expect(run?.ref).toBe('refs/tags/v1.2.3') // the concrete pushed ref, not the pattern
+		expect(queue.sent).toHaveLength(1)
+	})
+
+	test('a tag push NOT matching the v* pattern is a 204 no-op', async () => {
+		const { db } = createHarness()
+		const cloneUrl = 'https://github.com/acme/app.git'
+		await db.createApp({ id: 'app', repoUrl: normalizeRepoUrl(cloneUrl) })
+		await db.upsertAppEnv({ appId: 'app', env: 'release', triggerRef: 'refs/tags/v*' })
+		const queue = makeQueue()
+		const request = await pushWebhookRequest({ ref: 'refs/tags/release-1', cloneUrl, secret: SECRET })
+
+		const response = await handleWebhook(request, { db, repoSource: new FakeRepoSource({ webhookSecret: SECRET }), queue })
+		expect(response.status).toBe(204)
+		expect(queue.sent).toHaveLength(0)
+	})
+
 	test('repo URL matching is normalized (registered https vs pushed .git/scp form both match)', async () => {
 		const { db } = createHarness()
 		// Registered WITHOUT .git; pushed WITH .git and mixed case host — must still match.

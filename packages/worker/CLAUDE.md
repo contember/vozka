@@ -27,6 +27,11 @@ webhook (`src/webhook.ts`, private repos); (2) the manual Deploy button (`trigge
 poller (`src/repo-poll.ts`, wired in `scheduled`) for PUBLIC repos with no App install — it conditional-
 GETs the repo's commits/tags Atom feed (ETag) and enqueues on a new head sha (`runs.trigger='poll'`).
 
+An env's `trigger_ref` is an exact git ref OR a `*`-GLOB (`src/ref-match.ts` `refMatches`), most usefully
+`refs/tags/v*` to deploy on every version tag. The DEPLOYED ref is always concrete — the pushed ref
+(webhook) or the resolved newest matching tag (poll) — never the pattern. NULL trigger_ref = manual-only;
+a glob trigger_ref falls back to the default branch for a no-ref manual deploy.
+
 ## Invariants
 
 - **ACL on every `/api/*` route.** Each handler calls `authorize(iam, request, ACTION, scope?)` before

@@ -12,6 +12,7 @@ import { uuidv7 } from '../db'
 import { error, json, readJson } from '../http'
 import type { Authorized } from '../iam'
 import { stringField } from '../json'
+import { isRefPattern } from '../ref-match'
 import { logsKey } from '../relay'
 import type { DeployJobMessage } from '../run-lifecycle'
 
@@ -176,8 +177,11 @@ export async function triggerDeploy(c: RunsContext): Promise<Response> {
 	if (!appEnv) {
 		return error(404, 'app env not found')
 	}
-	// Explicit ref wins; else the env's trigger_ref; else the app's default branch.
-	const ref = stringField(body, 'ref') ?? appEnv.trigger_ref ?? `refs/heads/${app.default_branch}`
+	// Explicit ref wins; else the env's trigger_ref when it's a concrete ref; else the app's default
+	// branch. A GLOB trigger_ref (e.g. `refs/tags/v*`) is never a deployable ref, so it falls through to
+	// the default branch — pass an explicit `ref` to manually deploy a specific tag of a pattern env.
+	const concreteTriggerRef = appEnv.trigger_ref !== null && !isRefPattern(appEnv.trigger_ref) ? appEnv.trigger_ref : null
+	const ref = stringField(body, 'ref') ?? concreteTriggerRef ?? `refs/heads/${app.default_branch}`
 	const run = await c.db.createRun({ id: uuidv7(), appId, env, ref, trigger: 'manual' })
 	await c.queue.send({ runId: run.id })
 	await c.authorized.auth.audit({

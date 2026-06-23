@@ -9,6 +9,7 @@
 import { type Db } from './db'
 import { uuidv7 } from './db'
 import { error, json } from './http'
+import { refMatches } from './ref-match'
 import { normalizeRepoUrl, type RepoSource } from './repo-source'
 import type { DeployJobMessage } from './run-lifecycle'
 
@@ -42,20 +43,25 @@ export async function handleWebhook(request: Request, deps: WebhookDeps): Promis
 
 	const triggered: string[] = []
 	for (const app of apps) {
-		const appEnv = await deps.db.getAppEnvByTriggerRef(app.id, push.ref)
-		if (appEnv === null) {
-			continue // this app has no env subscribed to the pushed ref
+		// Match the pushed ref against every env's trigger_ref (exact or glob, e.g. `refs/tags/v*`). More
+		// than one env can subscribe (different patterns) — trigger each. The DEPLOYED ref is always the
+		// concrete pushed ref, never the pattern.
+		const envs = await deps.db.listTriggerEnvs(app.id)
+		for (const appEnv of envs) {
+			if (appEnv.trigger_ref === null || !refMatches(appEnv.trigger_ref, push.ref)) {
+				continue
+			}
+			const run = await deps.db.createRun({
+				id: uuidv7(),
+				appId: app.id,
+				env: appEnv.env,
+				ref: push.ref,
+				commitSha: push.commitSha,
+				trigger: 'webhook',
+			})
+			await deps.queue.send({ runId: run.id })
+			triggered.push(run.id)
 		}
-		const run = await deps.db.createRun({
-			id: uuidv7(),
-			appId: app.id,
-			env: appEnv.env,
-			ref: push.ref,
-			commitSha: push.commitSha,
-			trigger: 'webhook',
-		})
-		await deps.queue.send({ runId: run.id })
-		triggered.push(run.id)
 	}
 
 	if (triggered.length === 0) {

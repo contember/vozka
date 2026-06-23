@@ -12,6 +12,7 @@
 // than a `RepoSource` implementation.
 
 import { type Db, uuidv7 } from './db'
+import { refMatches } from './ref-match'
 import { normalizeRepoUrl } from './repo-source'
 import type { DeployJobMessage } from './run-lifecycle'
 
@@ -121,6 +122,33 @@ export function parseLatestEntry(atomXml: string): LatestEntry | null {
 }
 
 /**
+ * The newest tag in a GitHub tags Atom feed whose `refs/tags/<name>` matches `triggerRef` (a glob like
+ * `refs/tags/v*`, or an exact tag). Entries are newest-first; we return the first match. Each entry's
+ * tag name comes from its `<id>` (`tag:github.com,2008:Repository/<repoid>/<name>`), falling back to the
+ * `<title>`. Returns the concrete tag name (e.g. `v1.2.3`) — the caller deploys `refs/tags/<name>`.
+ * Defensive: a malformed / empty feed, or no entry matching the pattern, returns null (never throws).
+ */
+export function parseLatestTag(atomXml: string, triggerRef: string): string | null {
+	const entries = atomXml.match(/<entry[\s>][\s\S]*?<\/entry>/gi)
+	if (entries === null) {
+		return null
+	}
+	for (const entry of entries) {
+		const idMatch = /Repository\/\d+\/([^<]+)<\/id>/i.exec(entry)
+		const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(entry)
+		const raw = idMatch?.[1] ?? titleMatch?.[1]
+		if (raw === undefined) {
+			continue
+		}
+		const tag = raw.trim()
+		if (tag !== '' && refMatches(triggerRef, `refs/tags/${tag}`)) {
+			return tag
+		}
+	}
+	return null
+}
+
+/**
  * Poll every poll-eligible (app, env) once. For each: resolve the feed for its subscribed ref;
  * conditional-GET it (If-None-Match when an ETag is stored); on 304 just touch `last_polled_at`; on
  * 200 parse the newest sha and, when it differs from the last-seen sha, create a `poll` run + enqueue
@@ -174,21 +202,50 @@ export async function pollPublicRepos(deps: PollDeps): Promise<PollSummary> {
 			}
 
 			const body = await response.text()
-			const latest = parseLatestEntry(body)
-			if (latest === null) {
-				await recordError(deps, app.id, appEnv.env, prior, polledAt, 'feed unparseable', summary)
-				continue
-			}
-
 			const etag = response.headers.get('etag')
 
-			if (prior?.last_seen_sha === latest.sha) {
-				// Same head as last time — no new commit. Refresh the ETag (it may have changed) + timestamp.
+			// Resolve the change CURSOR (stored in last_seen_sha) + the concrete ref to deploy, by kind:
+			//   - branch (`refs/heads/<b>`): cursor = newest commit sha; deploy the branch ref.
+			//   - tag (`refs/tags/<glob>`): cursor = newest tag matching the pattern; deploy that tag ref.
+			let cursor: string
+			let deployRef: string
+			let commitSha: string | null
+			if (triggerRef.startsWith('refs/tags/')) {
+				const tag = parseLatestTag(body, triggerRef)
+				if (tag === null) {
+					// No tag matching the pattern yet — nothing to deploy. Refresh ETag + timestamp only.
+					await deps.db.upsertRepoPollState({
+						appId: app.id,
+						env: appEnv.env,
+						etag,
+						lastSeenSha: prior?.last_seen_sha ?? null,
+						lastPolledAt: polledAt,
+						lastError: null,
+					})
+					summary.unchanged++
+					continue
+				}
+				cursor = tag
+				deployRef = `refs/tags/${tag}`
+				commitSha = null
+			} else {
+				const latest = parseLatestEntry(body)
+				if (latest === null) {
+					await recordError(deps, app.id, appEnv.env, prior, polledAt, 'feed unparseable', summary)
+					continue
+				}
+				cursor = latest.sha
+				deployRef = triggerRef
+				commitSha = latest.sha
+			}
+
+			if (prior?.last_seen_sha === cursor) {
+				// Unchanged since last poll — refresh the ETag (may rotate) + timestamp, create no run.
 				await deps.db.upsertRepoPollState({
 					appId: app.id,
 					env: appEnv.env,
 					etag,
-					lastSeenSha: latest.sha,
+					lastSeenSha: cursor,
 					lastPolledAt: polledAt,
 					lastError: null,
 				})
@@ -196,13 +253,14 @@ export async function pollPublicRepos(deps: PollDeps): Promise<PollSummary> {
 				continue
 			}
 
-			// New head sha → trigger a deploy of THIS (app, env), exactly like a verified webhook push.
+			// New head (branch) / new matching tag → trigger a deploy of THIS (app, env), like a verified
+			// webhook push. The deployed ref is always concrete (the branch ref, or the resolved tag).
 			const run = await deps.db.createRun({
 				id: uuidv7(),
 				appId: app.id,
 				env: appEnv.env,
-				ref: triggerRef,
-				commitSha: latest.sha,
+				ref: deployRef,
+				commitSha,
 				trigger: 'poll',
 			})
 			await deps.queue.send({ runId: run.id })
@@ -210,7 +268,7 @@ export async function pollPublicRepos(deps: PollDeps): Promise<PollSummary> {
 				appId: app.id,
 				env: appEnv.env,
 				etag,
-				lastSeenSha: latest.sha,
+				lastSeenSha: cursor,
 				lastPolledAt: polledAt,
 				lastError: null,
 			})

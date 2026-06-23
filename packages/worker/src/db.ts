@@ -186,14 +186,27 @@ export class Db {
 	}
 
 	/**
-	 * Find the (app, env) a push ref triggers. The webhook narrows to an app first (by repo), then
-	 * matches the ref against that app's env trigger_refs — so two apps can use the same branch name.
+	 * Find the (app, env) a push ref triggers by EXACT trigger_ref. Kept for exact lookups; the webhook
+	 * uses `listTriggerEnvs` + `refMatches` instead so a glob trigger_ref (`refs/tags/v*`) also matches.
 	 */
 	async getAppEnvByTriggerRef(appId: string, triggerRef: string): Promise<AppEnvRow | null> {
 		return this.d1
 			.prepare('SELECT * FROM app_envs WHERE app_id = ? AND trigger_ref = ?')
 			.bind(appId, triggerRef)
 			.first<AppEnvRow>()
+	}
+
+	/**
+	 * Every env of an app that has a trigger_ref (exact or glob). The webhook fetches these and matches
+	 * the pushed ref against each via `refMatches` (glob-aware) — the set per app is tiny, so matching in
+	 * TS keeps the glob logic pure + testable rather than encoding it in SQL.
+	 */
+	async listTriggerEnvs(appId: string): Promise<AppEnvRow[]> {
+		const { results } = await this.d1
+			.prepare('SELECT * FROM app_envs WHERE app_id = ? AND trigger_ref IS NOT NULL ORDER BY env')
+			.bind(appId)
+			.all<AppEnvRow>()
+		return results
 	}
 
 	/** Upsert an (app, env) target. ON CONFLICT (app_id, env) overwrites the mutable columns. */
