@@ -1,10 +1,16 @@
 #!/usr/bin/env bun
 /**
- * One-time bring-up: deploy VOZKA ITSELF through vozka's own engine. This is the dogfood path — the
- * same `deploy()` (@vozka/core) that deploys every other app, fed vozka's own `vozka.config.ts`. It
- * sets `VOZKA_BOOTSTRAP_ADMINS` so the FIRST operator is an admin before propustka has any grant for
- * them (src/iam.ts `withBootstrapAdmins`), breaking the chicken-and-egg of "you need to be authorized
- * to authorize yourself".
+ * Self-deploy VOZKA ITSELF through vozka's own engine — the dogfood path: the same `deploy()`
+ * (@vozka/core) that deploys every other app, fed vozka's own `vozka.config.ts`. Run it FROM A LAPTOP
+ * for the first bring-up AND as a break-glass redeploy/recovery when the live control plane can't
+ * self-deploy (bad self-deploy, wedged D1, stuck DeployLock) — it does NOT depend on a running vozka.
+ *
+ * IDEMPOTENT — safe to re-run. The engine is declarative (oblaka provision, D1 migrations apply only the
+ * new ones, `wrangler deploy` / `secret put` overwrite, propustka reconcile is an idempotent PUT), so a
+ * re-run converges. The ONLY stateful knob is the escape hatch: `VOZKA_BOOTSTRAP_ADMINS` makes the FIRST
+ * operator an admin before propustka has any grant for them (src/iam.ts `withBootstrapAdmins`), breaking
+ * the chicken-and-egg of "you need to be authorized to authorize yourself". It is OPTIONAL, defaulting to
+ * '[]' (hatch CLOSED) so a routine redeploy doesn't reopen it — see the warning in main().
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────────
  * ORDERING for a real bring-up on a fresh account (each step is a SEPARATE operator action):
@@ -21,7 +27,8 @@
  *
  *   2. vozka SECOND — THIS script. Deploys vozka via the engine with VOZKA_BOOTSTRAP_ADMINS set to the
  *      first operator's email(s). After it lands, that operator can sign in through Access and use the
- *      whole control plane as admin even though propustka has granted them nothing yet.
+ *      whole control plane as admin even though propustka has granted them nothing yet. Re-runnable: a
+ *      later `bun run bootstrap` with NO admins is a safe break-glass redeploy of the live control plane.
  *
  *   3. REGISTER apps THIRD — `scripts/seed.ts` (apps registry rows) so a GitHub push self-deploys
  *      them. Run it against the now-live control plane. (vozka is single-account — there is no
@@ -43,16 +50,19 @@
  *   PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET — the one propustka's base URL + vozka's
  *                                                    provisioning key. Become vozka's runtime config so it
  *                                                    reconciles every app it deploys; also reconcile vozka.
- *   VOZKA_BOOTSTRAP_ADMINS                         — JSON array of the first operator email(s).
  *   VOZKA_DOMAIN                                   — vozka's hostname (drives Access destinations + vars).
  *   VOZKA_VAULT_KEY                                — the M4 vault master key (32 raw bytes, base64).
  *   GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET  — the GitHub App PEM key + webhook HMAC secret.
  * Optional:
+ *   VOZKA_BOOTSTRAP_ADMINS                         — JSON array of the first operator email(s). Set ONLY for
+ *                                                    the FIRST bring-up (or recovery); omit on a routine
+ *                                                    redeploy to keep the escape hatch CLOSED. Default '[]'.
  *   VOZKA_ENV (default `prod`).
  *
  * Usage:
- *   bun run scripts/bootstrap.ts            # real deploy (requires the env above)
- *   bun run scripts/bootstrap.ts --dry-run  # plan-only — builds the graph + walks every step, no CF
+ *   VOZKA_BOOTSTRAP_ADMINS='["you@org.com"]' bun run scripts/bootstrap.ts   # FIRST bring-up (hatch OPEN)
+ *   bun run scripts/bootstrap.ts                                            # break-glass redeploy (hatch CLOSED)
+ *   bun run scripts/bootstrap.ts --dry-run                                  # plan-only — graph + every step, no CF
  */
 
 import { deploy } from '@vozka/core'
@@ -80,9 +90,11 @@ async function main(): Promise<void> {
 	// VOZKA_DOMAIN must be set before importing vozka.config (its `access` declaration throws at import
 	// without it — same eager pattern as propustka/poplach's `propustka.access.ts`). Required either way.
 	required('VOZKA_DOMAIN')
-	// VOZKA_BOOTSTRAP_ADMINS is the whole point of the bootstrap — refuse to run without the first admin
-	// (an empty deploy here would lock the operator out: nobody can authorize, including themselves).
-	const bootstrapAdmins = required('VOZKA_BOOTSTRAP_ADMINS')
+	// VOZKA_BOOTSTRAP_ADMINS is OPTIONAL so this script is idempotent — re-runnable as a break-glass
+	// self-deploy of an already-live vozka WITHOUT reopening the escape hatch. Unset/empty → '[]' (hatch
+	// CLOSED), matching vozka.config's own default (vozka.config.ts). On a FIRST bring-up you MUST set it,
+	// else nobody — not even you — can authorize and you lock yourself out (the warning in main() is loud).
+	const bootstrapAdmins = optional('VOZKA_BOOTSTRAP_ADMINS') ?? '[]'
 
 	// Import AFTER the env guards: vozka.config materializes `access` at import (needs VOZKA_DOMAIN).
 	const { default: config } = await import('../vozka.config')
@@ -127,7 +139,17 @@ async function main(): Promise<void> {
 			return 0
 		}
 	})()
-	console.log(`Bootstrapping vozka → ${env}${DRY_RUN ? ' (dry-run)' : ''} with ${adminCount} bootstrap admin(s).`)
+	console.log(`Deploying vozka → ${env}${DRY_RUN ? ' (dry-run)' : ''} (idempotent — safe to re-run).`)
+	if (adminCount > 0) {
+		// Escape hatch OPEN: these operators are admin even before propustka grants them anything. Correct
+		// for a FIRST bring-up (or recovery); on a routine redeploy it needlessly reopens the hatch.
+		console.log(`  Escape hatch OPEN — ${adminCount} bootstrap admin(s) via VOZKA_BOOTSTRAP_ADMINS.`)
+	} else {
+		// Escape hatch CLOSED: the SAFE state for redeploying an already-live vozka (authorization stays
+		// fully propustka-owned). But a FIRST bring-up with 0 admins locks the operator out — warn loudly.
+		console.warn('  ⚠ No bootstrap admins (escape hatch CLOSED) — safe for a REDEPLOY of a live vozka.')
+		console.warn('    If this is the FIRST bring-up, abort now and set VOZKA_BOOTSTRAP_ADMINS, or you will lock yourself out.')
+	}
 
 	const result = await deploy(config, ctx)
 
@@ -139,8 +161,11 @@ async function main(): Promise<void> {
 		process.exit(1)
 	}
 
-	console.log('\nNext: register apps (scripts/seed.ts), then close the escape hatch (set')
-	console.log('VOZKA_BOOTSTRAP_ADMINS=[] and redeploy once propustka grants the operator admin).')
+	if (adminCount > 0) {
+		// First bring-up / recovery just ran with the hatch open — tell the operator how to close it.
+		console.log('\nNext: register apps (scripts/seed.ts), then close the escape hatch — re-run')
+		console.log('`bun run bootstrap` WITHOUT VOZKA_BOOTSTRAP_ADMINS once propustka grants the operator admin.')
+	}
 }
 
 main().catch((error: unknown) => {
