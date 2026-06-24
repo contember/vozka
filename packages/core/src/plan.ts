@@ -31,7 +31,7 @@ export const findMigratableDatabases = (worker: Worker): MigratableDatabase[] =>
 
 /**
  * Build the ordered deploy plan for one app + environment. Order is fixed and meaningful:
- * build → provision-resources → migrate → deploy-worker → reconcile-schema → reconcile-access →
+ * build → provision-resources → migrate → deploy-worker → reconcile-access → reconcile-schema →
  * sync-secrets. Steps that don't apply to this config are simply absent (not skipped).
  *
  * `worker` is the already-materialized resource graph (`config.resources({ env, domain })`); we take
@@ -59,12 +59,15 @@ export const buildPlan = (config: AppConfig, ctx: DeployContext, worker: Worker)
 
 	add({ id: 'deploy-worker', kind: 'deploy-worker', description: 'Deploy the Worker (`wrangler deploy`)' })
 
-	if (config.schema !== undefined && ctx.propustkaUrl !== undefined) {
-		add({ id: 'reconcile-schema', kind: 'reconcile-schema', description: 'Reconcile authz schema into propustka' })
-	}
-
+	// reconcile-ACCESS before reconcile-SCHEMA: a NEW app's first access reconcile SELF-REGISTERS it in
+	// propustka (creates its CF Access app — no prior ACCESS_APPS entry needed), whereas schema reconcile
+	// REQUIRES the app to already be a known ACCESS_APPS value. So access must come first.
 	if (config.access !== undefined && ctx.propustkaUrl !== undefined) {
 		add({ id: 'reconcile-access', kind: 'reconcile-access', description: 'Reconcile Access edge rules into propustka' })
+	}
+
+	if (config.schema !== undefined && ctx.propustkaUrl !== undefined) {
+		add({ id: 'reconcile-schema', kind: 'reconcile-schema', description: 'Reconcile authz schema into propustka' })
 	}
 
 	if (config.pipeline?.secrets !== undefined && config.pipeline.secrets.length > 0) {

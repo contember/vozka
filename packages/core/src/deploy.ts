@@ -1,3 +1,4 @@
+import { ReconcileAccessError, ReconcileSchemaError } from '@propustka/client'
 import { resolve } from 'node:path'
 import type { Worker } from 'oblaka-iac'
 import type { AppConfig } from 'vozka-config'
@@ -75,24 +76,24 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 		}
 
 		case 'migrate': {
-			// `migrate:<binding>` — recover the database from the graph and apply by database name.
+			// `migrate:<binding>` — apply by the D1 BINDING (env-stable), not the oblaka resource name (env-prefixed in wrangler.jsonc).
 			const binding = spec.id.slice('migrate:'.length)
 			const database = findMigratableDatabases(worker).find((d) => d.binding === binding)
 			if (database === undefined) {
 				throw new Error(`migrate: no migratable D1 database for binding \`${binding}\``)
 			}
 			if (dryRun) {
-				runtime.log(`  [dry-run] would run: wrangler d1 migrations apply ${database.name} --remote`)
+				runtime.log(`  [dry-run] would run: wrangler d1 migrations apply ${database.binding} --remote`)
 				return
 			}
 			const result = await runtime.runCommand({
 				command: 'wrangler',
-				args: ['d1', 'migrations', 'apply', database.name, '--remote'],
+				args: ['d1', 'migrations', 'apply', database.binding, '--remote'],
 				cwd: dir,
 				env: wranglerEnv(ctx),
 			})
 			if (result.exitCode !== 0) {
-				throw commandError(`wrangler d1 migrations apply ${database.name}`, result)
+				throw commandError(`wrangler d1 migrations apply ${database.binding}`, result)
 			}
 			return
 		}
@@ -119,7 +120,21 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 				runtime.log(`  [dry-run] would reconcile schema for \`${config.id}\` against ${propustkaUrl}`)
 				return
 			}
-			await runtime.reconcileSchema({ url: propustkaUrl, app: config.id, schema, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			try {
+				await runtime.reconcileSchema({ url: propustkaUrl, app: config.id, schema, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			} catch (error) {
+				// A NEW app whose propustka doesn't yet list it in ACCESS_APPS returns 404 "unknown app" — a
+				// first-bring-up condition, NOT a deploy failure: propustka only serves apps in its ACCESS_APPS
+				// config (reconcile-access has the same 404 tolerance). Skip with a warning; the schema
+				// reconciles on a later deploy, once the app is a known ACCESS_APPS value in propustka.
+				if (error instanceof ReconcileSchemaError && error.status === 404) {
+					runtime.log(
+						`  ⚠ propustka does not yet know app \`${config.id}\` (404) — schema reconcile skipped. Add it to propustka's ACCESS_APPS + redeploy propustka, then redeploy this app to reconcile.`,
+					)
+					return
+				}
+				throw error
+			}
 			return
 		}
 
@@ -133,7 +148,19 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 				runtime.log(`  [dry-run] would reconcile Access rules for \`${config.id}\` against ${propustkaUrl}`)
 				return
 			}
-			await runtime.reconcileAccess({ url: propustkaUrl, app: config.id, access, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			try {
+				await runtime.reconcileAccess({ url: propustkaUrl, app: config.id, access, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
+			} catch (error) {
+				// Same first-bring-up tolerance as reconcile-schema: a 404 "unknown app" means propustka is
+				// not configured for this app yet — skip with a warning, not a deploy failure.
+				if (error instanceof ReconcileAccessError && error.status === 404) {
+					runtime.log(
+						`  ⚠ propustka does not yet know app \`${config.id}\` (404) — access reconcile skipped. Add it to propustka's ACCESS_APPS + redeploy propustka, then redeploy this app to reconcile.`,
+					)
+					return
+				}
+				throw error
+			}
 			return
 		}
 

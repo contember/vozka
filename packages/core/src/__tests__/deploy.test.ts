@@ -110,7 +110,7 @@ describe('plan derivation', () => {
 		expect(withoutUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker'])
 
 		const withUrl = await deploy(config, makeCtx({ propustkaUrl: 'https://iam.example.com' }), makeRuntime(rec))
-		expect(withUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker', 'reconcile-schema', 'reconcile-access'])
+		expect(withUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker', 'reconcile-access', 'reconcile-schema'])
 	})
 
 	test('sync-secrets only when pipeline.secrets is non-empty', async () => {
@@ -142,8 +142,8 @@ describe('plan derivation', () => {
 			'provision-resources',
 			'migrate',
 			'deploy-worker',
-			'reconcile-schema',
 			'reconcile-access',
+			'reconcile-schema',
 			'sync-secrets',
 		])
 		// dependsOn chains each step to the previous one.
@@ -183,7 +183,7 @@ describe('step execution — collaborators + args', () => {
 		expect(rec.provisions[0]?.stateNamespace).toBe('legacy-ns')
 	})
 
-	test('migrate runs `wrangler d1 migrations apply <db> --remote` with cred env', async () => {
+	test('migrate applies by the D1 BINDING (not the resource name) — `wrangler d1 migrations apply DB --remote`', async () => {
 		const config = makeConfig({
 			resources: () =>
 				new Worker({
@@ -197,7 +197,9 @@ describe('step execution — collaborators + args', () => {
 		await deploy(config, makeCtx(), makeRuntime(rec))
 		const migrate = rec.commands.find((c) => c.args[0] === 'd1')
 		expect(migrate?.command).toBe('wrangler')
-		expect(migrate?.args).toEqual(['d1', 'migrations', 'apply', 'maindb', '--remote'])
+		// Binding is `DB`, resource name is `maindb`; wrangler must get the BINDING — oblaka env-prefixes the
+		// real database_name, so the resource name isn't in wrangler.jsonc, only the (env-stable) binding is.
+		expect(migrate?.args).toEqual(['d1', 'migrations', 'apply', 'DB', '--remote'])
 		expect(migrate?.env).toEqual({ CLOUDFLARE_API_TOKEN: 'tok-1', CLOUDFLARE_ACCOUNT_ID: 'acc-1' })
 	})
 
