@@ -27,13 +27,13 @@
 	},
 	"peerDependencies": {
 		"@propustka/core": "^0.0.5",
-		"oblaka-iac": ">=0.0.17"
+		"oblaka-iac": ">=0.0.18"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20251001.0",
 		"@propustka/core": "^0.0.5",
 		"@types/bun": "latest",
-		"oblaka-iac": "^0.0.17",
+		"oblaka-iac": "^0.0.18",
 		"wrangler": "4.72.0"
 	}
 }

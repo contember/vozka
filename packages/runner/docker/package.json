@@ -11,6 +11,6 @@
 	"dependencies": {
 		"@propustka/client": "^0.0.5",
 		"@propustka/core": "^0.0.5",
-		"oblaka-iac": "^0.0.17"
+		"oblaka-iac": "^0.0.18"
 	}
 }
