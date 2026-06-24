@@ -46,6 +46,11 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 		main: './src/index.ts',
 		compatibility_flags: ['nodejs_compat'],
 		compatibility_date: '2025-05-25',
+		// Bind the public hostname (`ctx.domain` ← VOZKA_DOMAIN) as a Custom Domain — auto-creates the DNS
+		// record + cert + route. Declared HERE as IaC so `wrangler deploy` keeps it (a domain attached only
+		// in the dashboard gets wiped by the next deploy); propustka's reconciled Access app fronts it. No
+		// domain (local-dev oblaka shim) → no route → *.workers.dev.
+		routes: domain !== undefined && domain !== '' ? [{ pattern: domain, custom_domain: true }] : [],
 		observability: { enabled: true },
 		// Cron trigger driving `scheduled` (src/index.ts): poll PUBLIC repos (no GitHub App install)
 		// for new commits every 5 minutes — the pull-based deploy trigger alongside the push webhook.
@@ -80,6 +85,10 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 				name: 'vozka-runner',
 				className: 'RunnerContainer',
 				image: '../runner/Dockerfile',
+				// Docker build context = repo ROOT (relative to packages/worker, where wrangler.jsonc lives), so
+				// the Dockerfile can COPY sibling packages (config/core/runner). Emitted as `image_build_context`
+				// — requires oblaka-iac >=0.0.18.
+				imageBuildContext: '../..',
 				maxInstances: env === 'prod' ? 10 : 3,
 				instanceType,
 			}),
@@ -200,7 +209,7 @@ export default defineApp({
 		// vozka's Worker source lives alongside this config (packages/worker).
 		workerDir: '.',
 		// Build the dashboard SPA into ../dashboard/dist (the ASSETS directory) before deploy.
-		build: 'bun --filter @vozka/dashboard run build',
+		build: 'bun run --filter @vozka/dashboard build',
 		// Runtime Worker secrets vozka needs, provisioned via `wrangler secret put` at deploy:
 		//   - VOZKA_VAULT_KEY         — the M4 vault master key (KEK) for the encrypted D1 secret vault.
 		//   - GITHUB_APP_PRIVATE_KEY  — the GitHub App PEM key (signs the App JWT for install tokens).
