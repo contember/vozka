@@ -103,6 +103,15 @@ export async function assembleJob(
 		secrets[row.name] = await deps.secrets.resolveSecret(row.value_ref)
 	}
 
+	// Resolve the app's NON-secret deploy vars for THIS env (same env layering; plaintext, no vault). The
+	// engine injects these into the deploy child's process.env so a migrated config reads them by name —
+	// environment/account-specific config that doesn't belong in the committed file (propustka's ACCESS_APPS…).
+	const varRows = await deps.db.getAppVarsForEnv(app.id, appEnv.env)
+	const vars: Record<string, string> = {}
+	for (const row of varRows) {
+		vars[row.name] = row.value
+	}
+
 	const job: RunnerJob = {
 		runId: run.id,
 		repoUrl: cloneTarget.cloneUrl,
@@ -120,6 +129,7 @@ export async function assembleJob(
 		...(appEnv.domain !== null ? { domain: appEnv.domain } : {}),
 		...(options.dryRun ? { dryRun: true } : {}),
 		...(Object.keys(secrets).length > 0 ? { secrets } : {}),
+		...(Object.keys(vars).length > 0 ? { vars } : {}),
 	}
 	return job
 }

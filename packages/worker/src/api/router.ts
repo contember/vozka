@@ -16,12 +16,15 @@ import {
 	deleteApp,
 	deleteAppEnv,
 	deleteAppSecret,
+	deleteAppVar,
 	getApp,
 	listAppEnvs,
 	listApps,
 	listAppSecrets,
+	listAppVars,
 	putAppEnv,
 	putAppSecret,
+	putAppVar,
 	registerApp,
 	type RegistryContext,
 	updateApp,
@@ -155,6 +158,20 @@ async function dispatch(request: Request, url: URL, deps: ApiDeps): Promise<Resp
 					return methodNotAllowed()
 				}
 				if (method === 'DELETE') return deleteAppSecret(c, id, subId)
+				return methodNotAllowed()
+			}
+			// /api/apps/:id/vars[/:name] — NON-secret per-app-env deploy config (plaintext, readable).
+			// app.manage (not secret.manage): vars are app config like app_envs, not vault secrets.
+			if (sub === 'vars') {
+				const a = await authorize(deps.iam, request, ACTIONS.APP_MANAGE, appScope(id))
+				const c = registryCtx(a)
+				if (c instanceof Response) return c
+				if (subId === undefined) {
+					if (method === 'GET') return listAppVars(c, id)
+					if (method === 'PUT') return putAppVar(c, id)
+					return methodNotAllowed()
+				}
+				if (method === 'DELETE') return deleteAppVar(c, id, subId)
 				return methodNotAllowed()
 			}
 

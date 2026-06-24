@@ -40,6 +40,16 @@ export interface AppSecretRow {
 	created_at: number
 }
 
+export interface AppVarRow {
+	app_id: string
+	/** NULL = applies to every env of the app; set = that env only (narrower wins). */
+	env: string | null
+	name: string
+	/** PLAINTEXT config value — these are non-secret per-app-env deploy vars, NOT vault secrets. */
+	value: string
+	created_at: number
+}
+
 export type RunTrigger = 'webhook' | 'manual' | 'poll'
 export type RunStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
@@ -290,6 +300,59 @@ export class Db {
 
 		// Local helper: NULL env needs `IS NULL` (a bound NULL never `= NULL`).
 		function input(value: string | null): value is string {
+			return value !== null
+		}
+	}
+
+	// ── App vars (non-secret deploy-time config; PLAINTEXT, mirrors app_secrets' env layering) ──
+
+	/** Vars visible to a deploy of `env`: the all-env layer (NULL) PLUS this env's, narrower wins (caller layers). */
+	async getAppVarsForEnv(appId: string, env: string): Promise<AppVarRow[]> {
+		const { results } = await this.d1
+			.prepare('SELECT * FROM app_vars WHERE app_id = ? AND (env IS NULL OR env = ?) ORDER BY name')
+			.bind(appId, env)
+			.all<AppVarRow>()
+		return results
+	}
+
+	async listAppVars(appId: string): Promise<AppVarRow[]> {
+		const { results } = await this.d1
+			.prepare('SELECT * FROM app_vars WHERE app_id = ? ORDER BY name, env')
+			.bind(appId)
+			.all<AppVarRow>()
+		return results
+	}
+
+	/** Upsert a plaintext var at its (app, env-or-all) layer. */
+	async upsertAppVar(input: { appId: string; env: string | null; name: string; value: string }): Promise<AppVarRow> {
+		// NULL env is a distinct layer from a concrete env (partial unique indexes), so the conflict
+		// target differs — two prepared variants keep the ON CONFLICT target correct for each layer.
+		if (input.env === null) {
+			return firstRow<AppVarRow>(
+				this.d1
+					.prepare(`INSERT INTO app_vars (app_id, env, name, value) VALUES (?, NULL, ?, ?)
+						ON CONFLICT (app_id, name) WHERE env IS NULL DO UPDATE SET value = excluded.value
+						RETURNING *`)
+					.bind(input.appId, input.name, input.value),
+			)
+		}
+		return firstRow<AppVarRow>(
+			this.d1
+				.prepare(`INSERT INTO app_vars (app_id, env, name, value) VALUES (?, ?, ?, ?)
+					ON CONFLICT (app_id, env, name) WHERE env IS NOT NULL DO UPDATE SET value = excluded.value
+					RETURNING *`)
+				.bind(input.appId, input.env, input.name, input.value),
+		)
+	}
+
+	async deleteAppVar(appId: string, env: string | null, name: string): Promise<boolean> {
+		const result = present(env)
+			? await this.d1.prepare('DELETE FROM app_vars WHERE app_id = ? AND env = ? AND name = ?').bind(appId, env, name).run()
+			: await this.d1.prepare('DELETE FROM app_vars WHERE app_id = ? AND env IS NULL AND name = ?').bind(appId, name).run()
+		return (result.meta.changes ?? 0) > 0
+
+		// Local helper: NULL env needs `IS NULL` (a bound NULL never `= NULL`).
+		function present(value: string | null): value is string {
 			return value !== null
 		}
 	}

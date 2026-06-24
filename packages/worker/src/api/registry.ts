@@ -7,7 +7,7 @@
 // a ref, never a raw value. vozka is single-account, so there is no `accounts` resource: the CF
 // account/token + propustka coords are vozka's own Worker config (src/env.ts).
 
-import type { AppEnvRow, AppRow, AppSecretRow, Db } from '../db'
+import type { AppEnvRow, AppRow, AppSecretRow, AppVarRow, Db } from '../db'
 import { error, json, readJson } from '../http'
 import type { Authorized } from '../iam'
 import { arrayField, booleanField, nullableStringField, numberField, stringField } from '../json'
@@ -208,6 +208,57 @@ export async function deleteAppSecret(c: RegistryContext, appId: string, name: s
 		return error(404, 'secret not found')
 	}
 	await c.authorized.auth.audit({ action: 'app.secret.delete', resourceType: 'app_secret', resourceId: `${appId}/${env ?? '*'}/${name}` })
+	return json({ ok: true })
+}
+
+// ── App vars (non-secret deploy-time config; PLAINTEXT, readable — unlike secrets) ──
+
+function toAppVarDto(row: AppVarRow): unknown {
+	// `value` IS exposed: these are NON-secret per-app-env config (e.g. PROPUSTKA_ACCESS_APPS). Secrets
+	// (app_secrets) expose only a ref; vars are plaintext config the dashboard can show + edit.
+	return { appId: row.app_id, env: row.env, name: row.name, value: row.value, createdAt: row.created_at }
+}
+
+export async function listAppVars(c: RegistryContext, appId: string): Promise<Response> {
+	if (!(await c.db.getApp(appId))) {
+		return error(404, 'app not found')
+	}
+	const rows = await c.db.listAppVars(appId)
+	return json({ items: rows.map(toAppVarDto) })
+}
+
+export async function putAppVar(c: RegistryContext, appId: string): Promise<Response> {
+	if (!(await c.db.getApp(appId))) {
+		return error(404, 'app not found')
+	}
+	const body = await readJson(c.request)
+	const name = stringField(body, 'name')
+	const value = stringField(body, 'value')
+	if (!name || !value) {
+		return error(400, 'name and value required (value is plaintext config — use a secret for sensitive values)')
+	}
+	// env null = all-env layer; a string narrows it to that env.
+	const env = nullableStringField(body, 'env') ?? null
+	const row = await c.db.upsertAppVar({ appId, env, name, value })
+	await c.authorized.auth.audit({
+		action: 'app.var.upsert',
+		resourceType: 'app_var',
+		resourceId: `${appId}/${env ?? '*'}/${name}`,
+		// NEVER log the value — even though it's non-secret, treat config as untrusted; only name + env.
+		metadata: { name, env },
+	})
+	return json(toAppVarDto(row))
+}
+
+export async function deleteAppVar(c: RegistryContext, appId: string, name: string): Promise<Response> {
+	// env is a query param (?env=); absent → the all-env layer.
+	const envParam = c.url.searchParams.get('env')
+	const env = envParam === null || envParam === '' ? null : envParam
+	const ok = await c.db.deleteAppVar(appId, env, name)
+	if (!ok) {
+		return error(404, 'var not found')
+	}
+	await c.authorized.auth.audit({ action: 'app.var.delete', resourceType: 'app_var', resourceId: `${appId}/${env ?? '*'}/${name}` })
 	return json({ ok: true })
 }
 

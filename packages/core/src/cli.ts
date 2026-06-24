@@ -23,6 +23,7 @@ Credentials are read from the environment:
   VOZKA_DOMAIN (optional)
 
 Secrets declared in \`pipeline.secrets\` are read from the environment by name.
+Non-secret vars declared in \`pipeline.vars\` are likewise read from the environment by name.
 `
 
 interface ParsedArgs {
@@ -104,6 +105,19 @@ const gatherSecrets = (config: AppConfig): Record<string, string> => {
 	return secrets
 }
 
+/** Gather each declared NON-secret deploy var's value from the environment (by its own name). The
+ * runner forwarded these into the child env; the engine re-injects + validates each declared one. */
+const gatherVars = (config: AppConfig): Record<string, string> => {
+	const vars: Record<string, string> = {}
+	for (const name of config.pipeline?.vars ?? []) {
+		const value = process.env[name]
+		if (value !== undefined && value !== '') {
+			vars[name] = value
+		}
+	}
+	return vars
+}
+
 const buildContext = (config: AppConfig, env: string, dir: string, dryRun: boolean): DeployContext => {
 	return {
 		env,
@@ -115,6 +129,7 @@ const buildContext = (config: AppConfig, env: string, dir: string, dryRun: boole
 		clientId: process.env['PROPUSTKA_CLIENT_ID'],
 		clientSecret: process.env['PROPUSTKA_CLIENT_SECRET'],
 		secrets: gatherSecrets(config),
+		vars: gatherVars(config),
 		cwd: dir,
 		dryRun,
 	}

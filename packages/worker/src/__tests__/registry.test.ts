@@ -105,6 +105,32 @@ describe('onboarding + registry CRUD', () => {
 		expect(delApp.status).toBe(200)
 		expect(await deps.db.getAppEnv('app', 'prod')).toBeNull()
 	})
+
+	test('app_vars CRUD round-trips (plaintext value, readable — unlike secrets)', async () => {
+		const { deps } = makeDeps()
+		await handleApi(req('POST', '/api/apps', { id: 'app', repoUrl: 'https://github.com/acme/app' }), deps)
+
+		// var upsert (plaintext config value, e.g. propustka's ACCESS_APPS)
+		const putVar = await handleApi(req('PUT', '/api/apps/app/vars', { name: 'PROPUSTKA_TEAM', value: 'https://contember.cloudflareaccess.com' }), deps)
+		expect(putVar.status).toBe(200)
+		// UNLIKE secrets, the VALUE is returned (vars are non-secret config).
+		const v = (await putVar.json()) as { name: string; value: string }
+		expect(v.value).toBe('https://contember.cloudflareaccess.com')
+
+		// missing value → 400
+		const bad = await handleApi(req('PUT', '/api/apps/app/vars', { name: 'X' }), deps)
+		expect(bad.status).toBe(400)
+
+		// list vars
+		const listVars = await handleApi(req('GET', '/api/apps/app/vars'), deps)
+		const vars = (await listVars.json()) as { items: unknown[] }
+		expect(vars.items).toHaveLength(1)
+
+		// delete var (all-env layer)
+		const delVar = await handleApi(req('DELETE', '/api/apps/app/vars/PROPUSTKA_TEAM'), deps)
+		expect(delVar.status).toBe(200)
+		expect(await deps.db.listAppVars('app')).toHaveLength(0)
+	})
 })
 
 describe('run history API', () => {

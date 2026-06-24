@@ -48,6 +48,13 @@ export interface RunnerJob {
 	 * forwards these into the child env. Values are redacted from every log line.
 	 */
 	secrets?: Record<SecretName, string>
+	/**
+	 * NON-secret deploy-time config vars, keyed by the name the app declares in `pipeline.vars` (e.g.
+	 * propustka's PROPUSTKA_ACCESS_APPS / TEAM). Like secrets, the container forwards them into the child
+	 * env so the config reads them via `process.env['NAME']`; UNLIKE secrets they are plaintext config
+	 * (not vault-backed, not `wrangler secret put`) and are NOT redacted from logs.
+	 */
+	vars?: Record<string, string>
 }
 
 /** The lifecycle a run moves through inside the container. */

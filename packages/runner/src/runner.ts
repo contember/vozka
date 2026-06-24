@@ -176,6 +176,10 @@ export class Runner {
 		for (const [name, value] of Object.entries(this.job.secrets ?? {})) {
 			env[name] = value
 		}
+		// Non-secret deploy vars: same env-by-name forwarding (the CLI reads pipeline.vars from the env).
+		for (const [name, value] of Object.entries(this.job.vars ?? {})) {
+			env[name] = value
+		}
 		return env
 	}
 

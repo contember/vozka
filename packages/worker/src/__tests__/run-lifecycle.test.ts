@@ -86,6 +86,35 @@ describe('assembleJob', () => {
 		expect(job.secrets).toEqual({ API_KEY: 'prod-value' })
 	})
 
+	test('resolves per-env NON-secret vars (narrower env wins, plaintext, no vault) into the RunnerJob', async () => {
+		const { db } = createHarness()
+		await db.createApp({ id: 'app', repoUrl: 'github.com/acme/app' })
+		await db.upsertAppEnv({ appId: 'app', env: 'prod', domain: 'app.example.com' })
+		// All-env layer + a prod override of the same name; the env-specific value must win.
+		await db.upsertAppVar({ appId: 'app', env: null, name: 'TEAM', value: 'all-env-team' })
+		await db.upsertAppVar({ appId: 'app', env: 'prod', name: 'TEAM', value: 'prod-team' })
+		await db.upsertAppVar({ appId: 'app', env: null, name: 'ACCESS_APPS', value: '{"aud":"app"}' })
+		const runId = uuidv7()
+		await db.createRun({ id: runId, appId: 'app', env: 'prod', ref: 'refs/heads/deploy/prod', trigger: 'manual', commitSha: null })
+
+		const job = await assembleJob(
+			{
+				db,
+				repoSource: new FakeRepoSource(),
+				secrets: new EnvSecretResolver({}),
+				deploy: DEPLOY,
+				lock: makeFakeLock(),
+				startRun: () => Promise.reject(new Error('unused')),
+			},
+			(await db.getRun(runId))!,
+			(await db.getApp('app'))!,
+			(await db.getAppEnv('app', 'prod'))!,
+		)
+
+		// Plaintext values straight from the registry; env-specific wins over all-env; no vault resolution.
+		expect(job.vars).toEqual({ ACCESS_APPS: '{"aud":"app"}', TEAM: 'prod-team' })
+	})
+
 	test('dryRun flows through to the job', async () => {
 		const { db } = createHarness()
 		const { runId } = await seedRun(db)
