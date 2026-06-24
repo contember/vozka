@@ -6,7 +6,7 @@
 		"packages/*"
 	],
 	"scripts": {
-		"typecheck": "bun run --filter '*' typecheck",
+		"typecheck": "bun run --filter '*' typecheck && tsc -p scripts/tsconfig.json",
 		"test": "bun test",
 		"lint": "biome lint .",
 		"format": "dprint fmt",
