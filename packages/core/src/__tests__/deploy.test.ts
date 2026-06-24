@@ -285,6 +285,35 @@ describe('status transitions + fail-stop', () => {
 	})
 })
 
+describe('pipeline.vars — non-secret deploy vars injected into process.env', () => {
+	test('each declared var is injected into process.env before resources() materializes', async () => {
+		const config = makeConfig({
+			pipeline: { vars: ['MY_DEPLOY_VAR'] },
+			resources: () =>
+				new Worker({
+					dir: '.',
+					name: 'demo',
+					compatibility_flags: ['nodejs_compat'],
+					main: 'src/index.ts',
+					bindings: {},
+					// The config reads the injected var the same way a migrated oblaka.ts does.
+					vars: { FROM_ENV: process.env['MY_DEPLOY_VAR'] ?? '(unset)' },
+				}),
+		})
+		const result = await deploy(config, makeCtx({ vars: { MY_DEPLOY_VAR: 'injected-value' } }), makeRuntime(rec))
+		expect(result.status).toBe('succeeded')
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- inspecting the recorded oblaka Worker
+		expect((rec.provisions[0]?.definition as unknown as { options: { vars: Record<string, string> } }).options.vars.FROM_ENV).toBe('injected-value')
+		delete process.env['MY_DEPLOY_VAR']
+	})
+
+	test('a declared var with no resolved value is a hard error before any provision', async () => {
+		const config = makeConfig({ pipeline: { vars: ['MISSING_VAR'] } })
+		await expect(deploy(config, makeCtx({ vars: {} }), makeRuntime(rec))).rejects.toThrow('MISSING_VAR')
+		expect(rec.provisions).toHaveLength(0)
+	})
+})
+
 describe('dry-run', () => {
 	test('runs oblaka in plan-only mode and skips every real mutation', async () => {
 		const config = makeConfig({

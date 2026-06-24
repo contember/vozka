@@ -40,6 +40,13 @@ export interface DeployContext {
 	clientSecret?: string
 	/** Resolved secret values for this deploy, keyed by secret name. */
 	secrets: Record<string, string>
+	/**
+	 * Resolved NON-SECRET deploy-var values for this deploy, keyed by var name (the app's
+	 * `pipeline.vars`). The engine injects each declared var into `process.env` before materializing
+	 * the resource graph, so the config reads it via `process.env['NAME']`. Plaintext, per-app-env
+	 * registry config — distinct from `secrets` (vault-backed, write-only, `wrangler secret put`).
+	 */
+	vars?: Record<string, string>
 	/** Absolute path the config was loaded from; build + relative paths resolve here. */
 	cwd: string
 	/**

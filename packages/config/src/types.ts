@@ -26,6 +26,15 @@ export interface AppPipeline {
 	build?: string
 	/** Names of the secrets this app requires at deploy time. */
 	secrets?: string[]
+	/**
+	 * Names of the NON-SECRET deploy-time vars this app needs (e.g. propustka's `PROPUSTKA_ACCESS_APPS`,
+	 * `PROPUSTKA_TEAM`). Their values are per-app-env registry config (NOT vault secrets); the engine
+	 * injects each into `process.env` BEFORE materializing `resources()`, so a config reads them the same
+	 * way a legacy `oblaka.ts` did (`process.env['NAME']`). Use for config that is plaintext but
+	 * environment/account-specific — values that don't belong in the committed config. A declared var with
+	 * no resolved value is a hard deploy error (never ship a half-configured deploy).
+	 */
+	vars?: string[]
 }
 
 /**

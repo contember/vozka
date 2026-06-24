@@ -205,6 +205,20 @@ const initSteps = (specs: JobSpec[]): DeployStep[] => specs.map((spec) => ({ spe
  */
 export const deploy = async (config: AppConfig, ctx: DeployContext, runtime: DeployRuntime = defaultRuntime): Promise<DeployResult> => {
 	const dryRun = ctx.dryRun ?? false
+	// Inject the app's NON-SECRET deploy vars (`ctx.vars`, the per-app-env registry config) into
+	// `process.env` BEFORE materializing the resource graph, so the config reads them via
+	// `process.env['NAME']` — the same way a migrated `oblaka.ts` does. The whole registry set is injected
+	// (so optional vars work too); `pipeline.vars` then asserts each REQUIRED name resolved. Required even
+	// in dry-run (the graph needs them to materialize, like creds); a declared var with no value is a hard
+	// error — never ship a half-configured deploy. Only the NAME is ever logged, never a value.
+	for (const [name, value] of Object.entries(ctx.vars ?? {})) {
+		process.env[name] = value
+	}
+	for (const name of config.pipeline?.vars ?? []) {
+		if (ctx.vars?.[name] === undefined) {
+			throw new Error(`deploy: missing value for declared pipeline var \`${name}\` (not in ctx.vars)`)
+		}
+	}
 	const worker = config.resources({ env: ctx.env, domain: ctx.domain })
 	const dir = workerDir(config, ctx)
 	const plan = buildPlan(config, ctx, worker)
