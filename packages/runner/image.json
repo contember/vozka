@@ -1,0 +1,5 @@
+{
+	"image": "prod-vozka-runner",
+	"tag": "c58d47ee",
+	"note": "Pinned runner image tag — the deploy toolchain image vozka's RunnerContainer runs. Bumped by .github/workflows/runner-image.yml whenever packages/runner|core|config (the image's inputs) change: CI builds + pushes registry.cloudflare.com/<CLOUDFLARE_ACCOUNT_ID>/<image>:<git-sha> and commits the new tag here, so the image ref travels WITH the code (a deploy of any commit gets exactly its matching image). vozka.config.ts builds the full ref from CLOUDFLARE_ACCOUNT_ID + this tag; RUNNER_BUILD=1 (or env=local) builds from the Dockerfile instead."
+}

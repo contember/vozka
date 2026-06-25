@@ -13,6 +13,7 @@
 
 import type { AppAccess, AppSchema, ResourceContext } from 'vozka-config'
 import { Container, D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from 'vozka-config'
+import runnerImageManifest from '../runner/image.json'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from './src/actions'
 
 /** Container instance type per stage — dev locally, larger off-local; any other env → basic. */
@@ -40,11 +41,15 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 	const isLocal = env === 'local'
 	const instanceType = instanceTypeFor(env)
 
-	// The runner image: reference a pre-built image by registry URI (RUNNER_IMAGE — set by the
-	// runner-image CI job after it builds + pushes) so a deploy THROUGH the runner needs NO local docker;
-	// fall back to the Dockerfile for local dev + the bootstrap break-glass path (which runs on a docker host).
-	const runnerImage = process.env['RUNNER_IMAGE'] ?? '../runner/Dockerfile'
-	const runnerFromDockerfile = runnerImage.endsWith('Dockerfile')
+	// The runner image: off-local, reference a pre-built image PINNED in the repo (packages/runner/image.json,
+	// bumped by the runner-image CI workflow on packages/runner|core|config changes) — so a deploy THROUGH the
+	// runner needs NO docker AND the image ref travels WITH the code (like a lockfile; no drift vs a mutable
+	// registry var). Local dev builds from the Dockerfile; RUNNER_BUILD=1 forces a Dockerfile build (first
+	// bring-up, or a deliberate rebuild on a docker host). The CF registry namespace is the account id.
+	const runnerFromDockerfile = isLocal || process.env['RUNNER_BUILD'] === '1' || runnerImageManifest.tag === ''
+	const runnerImage = runnerFromDockerfile
+		? '../runner/Dockerfile'
+		: `registry.cloudflare.com/${process.env['CLOUDFLARE_ACCOUNT_ID'] ?? ''}/${runnerImageManifest.image}:${runnerImageManifest.tag}`
 
 	return new Worker({
 		dir: '.',
