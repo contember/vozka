@@ -40,6 +40,12 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 	const isLocal = env === 'local'
 	const instanceType = instanceTypeFor(env)
 
+	// The runner image: reference a pre-built image by registry URI (RUNNER_IMAGE — set by the
+	// runner-image CI job after it builds + pushes) so a deploy THROUGH the runner needs NO local docker;
+	// fall back to the Dockerfile for local dev + the bootstrap break-glass path (which runs on a docker host).
+	const runnerImage = process.env['RUNNER_IMAGE'] ?? '../runner/Dockerfile'
+	const runnerFromDockerfile = runnerImage.endsWith('Dockerfile')
+
 	return new Worker({
 		dir: '.',
 		name: 'vozka',
@@ -88,11 +94,11 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 			RUNNER: new Container({
 				name: 'vozka-runner',
 				className: 'RunnerContainer',
-				image: '../runner/Dockerfile',
-				// Docker build context = repo ROOT (relative to packages/worker, where wrangler.jsonc lives), so
-				// the Dockerfile can COPY sibling packages (config/core/runner). Emitted as `image_build_context`
-				// — requires oblaka-iac >=0.0.18.
-				imageBuildContext: '../..',
+				image: runnerImage,
+				// `image_build_context` only applies to a Dockerfile build — it lets the Dockerfile COPY sibling
+				// packages (config/core/runner) from the repo ROOT (relative to packages/worker). A pre-built
+				// registry image needs no build context, so it's omitted there. (Build context requires oblaka-iac >=0.0.18.)
+				...(runnerFromDockerfile ? { imageBuildContext: '../..' } : {}),
 				maxInstances: env === 'prod' ? 10 : 3,
 				instanceType,
 			}),
