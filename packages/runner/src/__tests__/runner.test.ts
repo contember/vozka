@@ -67,6 +67,21 @@ describe('Runner pipeline', () => {
 		expect(recTags[0]?.spec.args[4]).toBe('v1.2.3')
 	})
 
+	test('redacts + strips a private-repo install token from the clone URL in every log line', async () => {
+		const token = 'ghs_supersecrettoken1234567890'
+		const spawn = makeSpawner([], (_spec, handlers) => {
+			// Simulate git echoing the full URL on an error — the token must not survive into the log.
+			handlers.onStderr(`fatal: could not read from https://x-access-token:${token}@github.com/acme/app\n`)
+			return { exitCode: 0 }
+		})
+		const runner = new Runner(baseJob({ repoUrl: `https://x-access-token:${token}@github.com/acme/app.git`, dryRun: true }), makeEnv(spawn))
+		await runner.run()
+		const lines = runner.lines()
+		expect(lines.map((l) => l.text).join('\n')).not.toContain(token)
+		// The clone meta line shows the repo WITHOUT the userinfo (token), not just a masked one.
+		expect(lines.some((l) => l.text === 'Cloning https://github.com/acme/app.git @ main')).toBe(true)
+	})
+
 	test('credentials + secrets go into the deploy child env (never argv)', async () => {
 		const rec: RecordedSpawn[] = []
 		const spawn = makeSpawner(rec, () => ({ exitCode: 0 }))

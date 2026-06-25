@@ -60,6 +60,16 @@ const makeRedactor = (job: RunnerJob): (text: string) => string => {
 			sensitive.add(value)
 		}
 	}
+	// The clone URL may embed a short-lived installation token as userinfo (`x-access-token:<token>@…`
+	// for a private repo); redact it like any other credential so it never lands in a persisted log line.
+	try {
+		const password = new URL(job.repoUrl).password
+		if (password.length >= 4) {
+			sensitive.add(password)
+		}
+	} catch {
+		// repoUrl isn't a parseable absolute URL (e.g. a fake/test value) — nothing to extract.
+	}
 	// Longest-first so a value that contains another is masked before its substring.
 	const values = [...sensitive].sort((a, b) => b.length - a.length)
 	return (text: string): string => {
@@ -70,6 +80,9 @@ const makeRedactor = (job: RunnerJob): (text: string) => string => {
 		return out
 	}
 }
+
+/** Strip any `user:pass@` userinfo from a URL for display — the clone URL may carry an install token. */
+const stripUserinfo = (url: string): string => url.replace(/(\/\/)[^@/]*@/, '$1')
 
 /**
  * Drives one job to completion. Construct, subscribe to `onLine` (the Worker relays these to R2),
@@ -199,7 +212,7 @@ export class Runner {
 	async run(): Promise<RunnerStatus> {
 		// ── clone ──
 		this.state = 'cloning'
-		this.emit('meta', `Cloning ${this.job.repoUrl} @ ${this.job.ref}`)
+		this.emit('meta', `Cloning ${stripUserinfo(this.job.repoUrl)} @ ${this.job.ref}`)
 		// `git clone --branch` wants a short branch/tag NAME, not a fully-qualified ref — strip the
 		// `refs/heads/` or `refs/tags/` prefix the trigger carries (a bare name/sha passes through).
 		const branch = this.job.ref.replace(/^refs\/(heads|tags)\//, '')
