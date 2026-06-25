@@ -1,0 +1,67 @@
+name: runner-image
+
+# The deploy runner's container image is a build artifact of the deploy TOOLCHAIN (packages/runner +
+# the core/config it bakes in) — NOT of app code, so it changes rarely. This workflow rebuilds + pushes
+# it ONLY when those inputs change, then PINS the new tag in packages/runner/image.json so the image ref
+# travels WITH the code (like a lockfile): a deploy of any commit references exactly its matching image,
+# and a deploy THROUGH the runner never needs docker (vozka.config references the pinned image instead of
+# building from the Dockerfile). See packages/worker/vozka.config.ts (buildVozkaWorker → runnerImage).
+#
+# Repo secrets required: CLOUDFLARE_API_TOKEN (Workers + Containers/registry push) and
+# CLOUDFLARE_ACCOUNT_ID. The pin commit carries [skip ci] so it never re-triggers this (or any) workflow,
+# even though it touches packages/runner/**.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/runner/**'
+      - 'packages/core/**'
+      - 'packages/config/**'
+
+# Serialize — never build two images or race two pin commits.
+concurrency: runner-image
+
+jobs:
+  build-push-pin:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to commit the pinned tag back to main
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the runner image
+        # The Dockerfile lives in packages/runner but COPYs sibling packages, so the build CONTEXT is the
+        # repo root (matches vozka.config's imageBuildContext: '../..'). .dockerignore keeps it lean.
+        run: docker build -f packages/runner/Dockerfile -t "prod-vozka-runner:${{ steps.sha.outputs.short }}" .
+
+      - name: Push to the Cloudflare managed registry
+        # Pushes the local image to registry.cloudflare.com/<account>/prod-vozka-runner:<sha> — the same
+        # ref vozka.config reconstructs from CLOUDFLARE_ACCOUNT_ID + the pinned tag.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bunx wrangler@4.72.0 containers push "prod-vozka-runner:${{ steps.sha.outputs.short }}"
+
+      - name: Pin the tag in packages/runner/image.json
+        run: |
+          jq --arg t "${{ steps.sha.outputs.short }}" '.tag = $t' packages/runner/image.json > image.json.tmp
+          mv image.json.tmp packages/runner/image.json
+
+      - name: Commit the pin
+        run: |
+          if git diff --quiet packages/runner/image.json; then
+            echo "image.json already pinned to this tag — nothing to commit."
+            exit 0
+          fi
+          git config user.name 'vozka-ci[bot]'
+          git config user.email 'vozka-ci@users.noreply.github.com'
+          git add packages/runner/image.json
+          git commit -m "ci(runner-image): pin runner image to ${{ steps.sha.outputs.short }} [skip ci]"
+          git push
