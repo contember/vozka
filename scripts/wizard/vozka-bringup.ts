@@ -4,14 +4,14 @@
  *   1. generates the vault KEK (printed ONCE, loud),
  *   2. creates the GitHub App via the manifest flow and prompts for its install,
  *   3. assembles the full env Record the bootstrap script expects,
- *   4. shells out to `scripts/bootstrap.ts --dry-run`, shows the plan, asks to confirm, then the real run,
+ *   4. shells out to `vozka platform deploy --dry-run` (vozka-runner + vozka), shows the plan, confirms, real run,
  *   5. health-checks the live control plane,
  *   6. optionally seeds the app registry (scripts/seed.ts) — else points the operator at the dashboard,
  *   7. reminds the operator to close the escape hatch once propustka grants them admin.
  *
- * It ORCHESTRATES the existing bootstrap.ts / seed.ts (shells out) — it never duplicates their deploy
- * logic. Secret values flow only into the child env; this module never logs a value (the vault key is
- * the one value printed, ONCE, by design — it has no other home and the operator must store it).
+ * It ORCHESTRATES the existing `vozka platform deploy` command + seed.ts (shells out) — it never duplicates
+ * their deploy logic. Secret values flow only into the child env; this module never logs a value (the vault
+ * key is the one value printed, ONCE, by design — it has no other home and the operator must store it).
  */
 
 import { randomBytes } from 'node:crypto'
@@ -49,9 +49,24 @@ export interface BringupInput {
 	propustkaAppDomain: string
 }
 
-/** The packages/worker directory (where bootstrap.ts/seed.ts live) — the cwd for those shell-outs.
- *  Resolved from this file at <repo>/scripts/wizard/ up to the repo root, then into packages/worker. */
+/** The packages/worker directory — the cwd for the seed.ts shell-out. Resolved from this file at
+ *  <repo>/scripts/wizard/ up to the repo root, then into packages/worker. */
 const workerDir = resolve(import.meta.dir, '..', '..', 'packages', 'worker')
+
+/** The repo root — the cwd for `vozka platform deploy` (it chdir's per component, so it runs from the
+ *  root with the two config paths below). */
+const repoRoot = resolve(import.meta.dir, '..', '..')
+
+/** `vozka platform deploy` argv (via the @vozka/core CLI): deploys vozka-runner THEN vozka — one idempotent
+ *  bring-up. Replaces the old `scripts/bootstrap.ts` shell-out, which deployed vozka ALONE and predated the
+ *  executor split (vozka binds RUNNER_SVC → vozka-runner, so the runner must come up first). */
+const PLATFORM_DEPLOY = [
+	'packages/core/src/cli.ts',
+	'platform',
+	'deploy',
+	'--runner-config=packages/runner/vozka-runner.config.ts',
+	'--worker-config=packages/worker/vozka.config.ts',
+]
 
 /** Run the shared vozka bring-up. Throws on any hard failure (bad deploy, etc.). */
 export async function runVozkaBringup(collected: BringupInput): Promise<void> {
@@ -65,7 +80,7 @@ export async function runVozkaBringup(collected: BringupInput): Promise<void> {
 		await promptInstall(app, collected.installRepos)
 	}
 
-	const env = assembleEnv(collected, vaultKey, app.pem, app.webhookSecret)
+	const env = assembleEnv(collected, vaultKey, app)
 
 	await bootstrapDryThenReal(env)
 	await healthCheck(collected.vozkaDomain)
@@ -126,11 +141,12 @@ async function createGitHubApp(collected: BringupInput): Promise<{ app: CreatedG
 }
 
 /**
- * Assemble the full env Record the bootstrap script reads (the SAME names vozka.config declares). The
- * secret VALUES (token, vault key, propustka secret, PEM, webhook secret) live in this object and flow
- * straight into the child's env — never logged, never written to disk.
+ * Assemble the full env Record the deploy reads (the SAME names vozka.config declares). The secret VALUES
+ * (token, vault key, propustka secret, PEM, webhook secret) live in this object and flow straight into the
+ * child's env — never logged, never written to disk. `GITHUB_APP_ID` is included because vozka.config reads
+ * it from the env (App-JWT `iss`); omitting it ships a vozka that 401s on GitHub installation-token mint.
  */
-function assembleEnv(collected: BringupInput, vaultKey: string, pem: string, webhookSecret: string): Record<string, string> {
+function assembleEnv(collected: BringupInput, vaultKey: string, app: CreatedGitHubApp): Record<string, string> {
 	return {
 		CLOUDFLARE_ACCOUNT_ID: collected.accountId,
 		CLOUDFLARE_API_TOKEN: collected.apiToken,
@@ -139,30 +155,36 @@ function assembleEnv(collected: BringupInput, vaultKey: string, pem: string, web
 		PROPUSTKA_CLIENT_ID: collected.propustkaClientId,
 		PROPUSTKA_CLIENT_SECRET: collected.propustkaClientSecret,
 		VOZKA_VAULT_KEY: vaultKey,
-		GITHUB_APP_PRIVATE_KEY: pem,
-		GITHUB_WEBHOOK_SECRET: webhookSecret,
+		GITHUB_APP_ID: String(app.id),
+		GITHUB_APP_PRIVATE_KEY: app.pem,
+		GITHUB_WEBHOOK_SECRET: app.webhookSecret,
 		VOZKA_BOOTSTRAP_ADMINS: JSON.stringify(collected.bootstrapAdmins),
 		VOZKA_ENV: collected.env,
 	}
 }
 
 /**
- * Run the vozka self-deploy: ALWAYS `scripts/bootstrap.ts --dry-run` first (plan-only), show its
- * output, get an explicit confirm, THEN the real run. The dry-run is non-mutating; the real run is
- * gated behind the operator. Both inherit stdio so the engine's per-step output streams live.
+ * Run the platform bring-up via `vozka platform deploy`: vozka-runner THEN vozka (the runner first — vozka
+ * binds RUNNER_SVC → it). ALWAYS `--dry-run` first (plan-only), show its output, get an explicit confirm,
+ * THEN the real run with `--build-runner-image` (a first bring-up — the runner container image isn't in this
+ * account's registry yet). The dry-run is non-mutating; the real run is gated behind the operator. Both
+ * inherit stdio so the engine's per-component, per-step output streams live.
  */
 async function bootstrapDryThenReal(env: Record<string, string>): Promise<void> {
-	step('Plan the vozka deploy (bootstrap --dry-run)')
+	step('Plan the platform deploy (vozka-runner + vozka, dry-run)')
 	info('Running the engine in plan-only mode — no Cloudflare, no propustka changes.')
-	await run({ command: 'bun', args: ['run', 'scripts/bootstrap.ts', '--dry-run'], cwd: workerDir, env })
+	await run({ command: 'bun', args: [...PLATFORM_DEPLOY, '--dry-run'], cwd: repoRoot, env })
 
-	step('Deploy vozka for real')
-	const go = await confirm('The dry-run above is the plan. Deploy vozka FOR REAL now?', false)
+	step('Deploy the platform for real')
+	info('Brings up vozka-runner (the deploy executor) then vozka. The first run BUILDS + pushes the runner')
+	info('container image into this account — that step needs DOCKER on this machine.')
+	const go = await confirm('The dry-run above is the plan. Deploy vozka-runner + vozka FOR REAL now?', false)
 	if (!go) {
 		throw new Error('Aborted before the real deploy (re-run the wizard to retry).')
 	}
-	await run({ command: 'bun', args: ['run', 'scripts/bootstrap.ts'], cwd: workerDir, env })
-	ok('vozka deployed.')
+	// --build-runner-image: first bring-up — the image isn't in this account's registry yet (needs docker).
+	await run({ command: 'bun', args: [...PLATFORM_DEPLOY, '--build-runner-image'], cwd: repoRoot, env })
+	ok('vozka-runner + vozka deployed.')
 }
 
 /**

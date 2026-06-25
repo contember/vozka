@@ -5,7 +5,7 @@
  * full-account cold start.
  *
  * It ORCHESTRATES the existing operator scripts — propustka's deploy.yml step sequence (replicated as
- * shell-outs), propustka's provision-key.ts, and vozka's own scripts/bootstrap.ts + scripts/seed.ts.
+ * shell-outs), propustka's provision-key.ts, and vozka's own `platform deploy` command + scripts/seed.ts.
  * It never re-implements deploy logic. See the wizard/ modules.
  *
  * What it does, in order:

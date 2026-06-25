@@ -4,8 +4,8 @@
  * are bringing vozka up alongside it. This is the common case for an existing Cloudflare account that
  * already runs propustka as its Access/authz front door.
  *
- * It ORCHESTRATES the existing operator scripts (scripts/bootstrap.ts, scripts/seed.ts, propustka's
- * provision-key.ts) — it never re-implements their deploy logic. See the wizard/ modules.
+ * It ORCHESTRATES the existing operator scripts (the `vozka platform deploy` command, scripts/seed.ts,
+ * propustka's provision-key.ts) — it never re-implements their deploy logic. See the wizard/ modules.
  *
  * What it does, in order:
  *   1. collect vozka's domain, the propustka URL, the GitHub org, and the first-admin email(s),
