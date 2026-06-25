@@ -57,6 +57,16 @@ describe('Runner pipeline', () => {
 		expect(typeof status.finishedAt).toBe('number')
 	})
 
+	test('strips refs/heads|tags/ from the ref for `git clone --branch` (a short name passes through)', async () => {
+		const recHeads: RecordedSpawn[] = []
+		await new Runner(baseJob({ ref: 'refs/heads/main', dryRun: true }), makeEnv(makeSpawner(recHeads, () => ({ exitCode: 0 })))).run()
+		expect(recHeads[0]?.spec.args).toEqual(['clone', '--depth', '1', '--branch', 'main', 'https://github.com/acme/app.git', '/workspace/run-1'])
+
+		const recTags: RecordedSpawn[] = []
+		await new Runner(baseJob({ ref: 'refs/tags/v1.2.3', dryRun: true }), makeEnv(makeSpawner(recTags, () => ({ exitCode: 0 })))).run()
+		expect(recTags[0]?.spec.args[4]).toBe('v1.2.3')
+	})
+
 	test('credentials + secrets go into the deploy child env (never argv)', async () => {
 		const rec: RecordedSpawn[] = []
 		const spawn = makeSpawner(rec, () => ({ exitCode: 0 }))

@@ -200,9 +200,12 @@ export class Runner {
 		// ── clone ──
 		this.state = 'cloning'
 		this.emit('meta', `Cloning ${this.job.repoUrl} @ ${this.job.ref}`)
+		// `git clone --branch` wants a short branch/tag NAME, not a fully-qualified ref — strip the
+		// `refs/heads/` or `refs/tags/` prefix the trigger carries (a bare name/sha passes through).
+		const branch = this.job.ref.replace(/^refs\/(heads|tags)\//, '')
 		const clone = await this.step({
 			command: 'git',
-			args: ['clone', '--depth', '1', '--branch', this.job.ref, this.job.repoUrl, this.checkoutDir],
+			args: ['clone', '--depth', '1', '--branch', branch, this.job.repoUrl, this.checkoutDir],
 			cwd: this.env.workspace,
 		})
 		if (clone.exitCode !== 0) {

@@ -176,13 +176,16 @@ export class GitHubAppRepoSource implements RepoSource {
 	}
 
 	async clone(repoUrl: string, ref: string, installationId?: number | null): Promise<CloneTarget> {
-		// A public repo (no installation) clones from the bare URL — no token needed.
+		// The registry stores a NORMALIZED, scheme-less repo URL (`github.com/owner/repo`); git needs a real
+		// https URL to clone. Add the scheme back (idempotent when one is already present).
+		const httpsUrl = repoUrl.startsWith('http') ? repoUrl : `https://${repoUrl}`
+		// A public repo (no installation) clones from the bare https URL — no token needed.
 		if (installationId === undefined || installationId === null) {
-			return { cloneUrl: repoUrl, ref }
+			return { cloneUrl: httpsUrl, ref }
 		}
 		const token = await this.mintInstallationToken(installationId)
 		// x-access-token is GitHub's documented installation-token clone scheme.
-		const url = new URL(repoUrl)
+		const url = new URL(httpsUrl)
 		url.username = 'x-access-token'
 		url.password = token.token
 		return { cloneUrl: url.toString(), ref }
