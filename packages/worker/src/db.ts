@@ -437,6 +437,24 @@ export class Db {
 		return (result.meta.changes ?? 0) > 0
 	}
 
+	/**
+	 * Sweep ORPHANED runs: mark any still `pending`/`running` past `maxAgeSeconds` as `failed`. vozka-runner's
+	 * per-run backstop (RunnerContainer DO) already records the terminal status within ~18 min even when the
+	 * relay is aborted (e.g. a vozka self-deploy resets vozka mid-run) — this cron-driven sweep is the
+	 * backstop-TO-the-backstop for the rare case the DO never fired at all (e.g. vozka-runner itself was
+	 * down). Aged on `started_at` (running) falling back to `created_at` (never-started pending). Returns
+	 * the count swept. `maxAgeSeconds` must comfortably exceed the container hard-kill (~15 min) + backstop
+	 * deadline (~18 min) so a genuinely in-flight run is never reaped.
+	 */
+	async sweepStaleRuns(maxAgeSeconds: number): Promise<number> {
+		const result = await this.d1
+			.prepare(`UPDATE runs SET status = 'failed', finished_at = unixepoch()
+				WHERE status IN ('pending','running') AND COALESCE(started_at, created_at) < unixepoch() - ?`)
+			.bind(maxAgeSeconds)
+			.run()
+		return result.meta.changes ?? 0
+	}
+
 	// ── Repo polling (public repos: no GitHub App install → pulled, not pushed) ──
 
 	/**

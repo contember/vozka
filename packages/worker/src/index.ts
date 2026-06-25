@@ -21,6 +21,12 @@ export { DeployLock } from './DeployLock'
 const DEPLOY_LOCK_TTL_MS = 30 * 60 * 1000
 /** Delay before a deferred run (another deploy of the same app-env in flight) is re-checked. */
 const DEPLOY_LOCK_REQUEUE_DELAY_S = 30
+/**
+ * A `pending`/`running` run older than this is treated as ORPHANED by the cron sweep and marked failed.
+ * Set well beyond the container hard-kill (~15 min) + vozka-runner's per-run backstop deadline (~18 min)
+ * so a genuinely long deploy is never reaped — the sweep only catches runs the backstop itself missed.
+ */
+const STALE_RUN_MAX_AGE_S = 30 * 60
 
 /**
  * The vozka control-plane Worker — a single `WorkerEntrypoint` carrying:
@@ -133,8 +139,9 @@ export class Vozka extends WorkerEntrypoint<Env> {
 	 * Logs counts only — never a feed URL or any secret.
 	 */
 	override async scheduled(_controller: ScheduledController): Promise<void> {
+		const db = new Db(this.env.DB)
 		const summary = await pollPublicRepos({
-			db: new Db(this.env.DB),
+			db,
 			fetch,
 			queue: this.env.DEPLOY_QUEUE,
 			now: () => Math.floor(Date.now() / 1000),
@@ -142,6 +149,12 @@ export class Vozka extends WorkerEntrypoint<Env> {
 		console.info(
 			`repo poll: polled=${summary.polled} triggered=${summary.triggered} unchanged=${summary.unchanged} errored=${summary.errored} skipped=${summary.skipped}`,
 		)
+		// Backstop-to-the-backstop: reap any run the per-run DO backstop never finished (e.g. vozka-runner
+		// was down). Safe even on every tick — the age guard means only genuinely orphaned runs are swept.
+		const swept = await db.sweepStaleRuns(STALE_RUN_MAX_AGE_S)
+		if (swept > 0) {
+			console.warn(`run sweep: marked ${swept} stale run(s) failed (> ${STALE_RUN_MAX_AGE_S}s in pending/running)`)
+		}
 	}
 
 	/** Assemble the run-lifecycle deps from the Worker bindings (startRun adapted to RunOutcome). */
