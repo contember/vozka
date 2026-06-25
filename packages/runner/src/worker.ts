@@ -30,6 +30,11 @@ export class VozkaRunner extends WorkerEntrypoint<Env> {
 		const id = this.env.RUNNER.idFromName(job.runId)
 		const container = this.env.RUNNER.get(id)
 		await container.startAndWaitForPorts()
+		// Arm the backstop BEFORE the long relay: the container DO will record the terminal status on its
+		// own (caller-independent) schedule if this RPC is aborted mid-deploy — which is exactly what a
+		// vozka self-deploy does (it resets vozka, killing this RPC). The relay's fast path still wins when
+		// it survives; the backstop's write is idempotent (see RunnerContainer.armBackstop / finish-run).
+		await container.armBackstop(job.runId)
 		const relayable: ContainerLike = {
 			containerFetch: (input, init) => container.containerFetch(input, init),
 			heartbeat: () => container.heartbeat(),
