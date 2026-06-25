@@ -265,17 +265,58 @@ function base64url(bytes: Uint8Array): string {
 }
 
 /** Decode a PEM PKCS#8 private key body to its DER bytes for `importKey`. */
-function pemToPkcs8(pem: string): Uint8Array<ArrayBuffer> {
+export function pemToPkcs8(pem: string): Uint8Array<ArrayBuffer> {
+	// WebCrypto's importKey only accepts PKCS8 (`BEGIN PRIVATE KEY`). A GitHub App key downloaded from
+	// GitHub is PKCS1 (`BEGIN RSA PRIVATE KEY`) — detect that and wrap the DER in a PKCS8 envelope, else
+	// importKey('pkcs8') throws "Data provided to an operation does not meet requirements".
+	const isPkcs1 = /BEGIN RSA PRIVATE KEY/.test(pem)
 	const body = pem
 		.replace(/-----BEGIN [^-]+-----/, '')
 		.replace(/-----END [^-]+-----/, '')
 		.replace(/\s+/g, '')
 	const binary = atob(body)
-	const out = new Uint8Array(binary.length)
+	const der = new Uint8Array(binary.length)
 	for (let i = 0; i < binary.length; i++) {
-		out[i] = binary.charCodeAt(i)
+		der[i] = binary.charCodeAt(i)
 	}
+	return isPkcs1 ? wrapPkcs1AsPkcs8(der) : der
+}
+
+/** Encode one DER TLV: a tag byte, a definite-length prefix, then the content bytes. */
+function derTlv(tag: number, content: Uint8Array): Uint8Array<ArrayBuffer> {
+	let lengthBytes: number[]
+	if (content.length < 0x80) {
+		lengthBytes = [content.length]
+	} else {
+		const big: number[] = []
+		let n = content.length
+		while (n > 0) {
+			big.unshift(n & 0xff)
+			n >>= 8
+		}
+		lengthBytes = [0x80 | big.length, ...big]
+	}
+	const out = new Uint8Array(1 + lengthBytes.length + content.length)
+	out[0] = tag
+	out.set(lengthBytes, 1)
+	out.set(content, 1 + lengthBytes.length)
 	return out
+}
+
+/**
+ * Wrap a PKCS1 `RSAPrivateKey` DER in a PKCS8 `PrivateKeyInfo` envelope (rsaEncryption, NULL params) so
+ * WebCrypto's importKey('pkcs8') accepts it. GitHub serves App keys as PKCS1; WebCrypto only takes PKCS8.
+ */
+function wrapPkcs1AsPkcs8(pkcs1: Uint8Array): Uint8Array<ArrayBuffer> {
+	const version = new Uint8Array([0x02, 0x01, 0x00]) // INTEGER 0
+	// SEQUENCE { OID 1.2.840.113549.1.1.1 (rsaEncryption), NULL }
+	const algorithmId = new Uint8Array([0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00])
+	const privateKey = derTlv(0x04, pkcs1) // OCTET STRING { RSAPrivateKey }
+	const inner = new Uint8Array(version.length + algorithmId.length + privateKey.length)
+	inner.set(version, 0)
+	inner.set(algorithmId, version.length)
+	inner.set(privateKey, version.length + algorithmId.length)
+	return derTlv(0x30, inner) // SEQUENCE { ... } = PrivateKeyInfo
 }
 
 // ── FakeRepoSource (tests / local) ─────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { decodePushEvent, normalizeRepoUrl, verifyWebhookSignature } from '../repo-source'
+import { decodePushEvent, normalizeRepoUrl, pemToPkcs8, verifyWebhookSignature } from '../repo-source'
 import { signWebhook } from './helpers/harness'
 
 // Primitive-level unit tests for the RepoSource pure logic: HMAC-SHA256 webhook verification
@@ -64,5 +64,37 @@ describe('decodePushEvent', () => {
 	test('returns null when ref or repo is missing', () => {
 		expect(decodePushEvent({ repository: { clone_url: 'x' } }, null)).toBeNull()
 		expect(decodePushEvent({ ref: 'r' }, null)).toBeNull()
+	})
+})
+
+describe('pemToPkcs8 (accepts both PKCS1 and PKCS8 keys)', () => {
+	// GitHub App keys are PKCS1 (`BEGIN RSA PRIVATE KEY`); WebCrypto's importKey only takes PKCS8. Verify
+	// pemToPkcs8 produces DER that crypto.subtle.importKey('pkcs8') accepts for BOTH PEM encodings.
+	const importsAndSigns = async (pem: string): Promise<boolean> => {
+		const key = await crypto.subtle.importKey('pkcs8', pemToPkcs8(pem), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
+		const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode('vozka'))
+		return new Uint8Array(sig).length === 256
+	}
+
+	test('a PKCS1 (`BEGIN RSA PRIVATE KEY`) key imports + signs', async () => {
+		const { generateKeyPairSync } = await import('node:crypto')
+		const { privateKey } = generateKeyPairSync('rsa', {
+			modulusLength: 2048,
+			publicKeyEncoding: { type: 'spki', format: 'pem' },
+			privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+		})
+		expect(privateKey).toContain('BEGIN RSA PRIVATE KEY')
+		expect(await importsAndSigns(privateKey)).toBe(true)
+	})
+
+	test('a PKCS8 (`BEGIN PRIVATE KEY`) key still imports + signs', async () => {
+		const { generateKeyPairSync } = await import('node:crypto')
+		const { privateKey } = generateKeyPairSync('rsa', {
+			modulusLength: 2048,
+			publicKeyEncoding: { type: 'spki', format: 'pem' },
+			privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+		})
+		expect(privateKey).toContain('BEGIN PRIVATE KEY')
+		expect(await importsAndSigns(privateKey)).toBe(true)
 	})
 })
