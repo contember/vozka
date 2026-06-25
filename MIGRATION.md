@@ -5,10 +5,14 @@ Cloudflare account — never one vozka spanning accounts (vozka is single-accoun
 
 ## Current state (today)
 
-| Account       | propustka | Apps deployed via `.github/workflows/deploy.yml`            |
-| ------------- | --------- | ----------------------------------------------------------- |
-| **contember** | live      | **opice** (`deploy/prod` only), **poplach** (`deploy/prod`) |
-| **mangoweb**  | live      | **poplach** (`deploy/mangoweb` → second CF account)         |
+| Account       | propustka | Apps deployed via `.github/workflows/deploy.yml`                                            |
+| ------------- | --------- | ------------------------------------------------------------------------------------------- |
+| **contember** | live      | **opice** (`deploy/prod` only), **poplach** (`deploy/prod`)                                  |
+| **mangoweb**  | live      | **poplach** (`deploy/mangoweb`), **revizor** (`deploy/mangoweb`, mangoweb-only — no opice)   |
+
+revizor's `deploy.yml` carries a `deploy/prod → contember` target option, but it was never configured
+(only the `mangoweb` GitHub Environment exists, `REVIZOR_HOSTNAME = revizor.mgwsite.com`) — so revizor is
+**mangoweb-only** and was untouched by Phase 1–2. poplach is the only repo deployed to **both** accounts.
 
 Each app's `deploy.yml` runs: `oblaka oblaka.ts --env --state-namespace=<app>-state --remote` →
 `wrangler d1 migrations apply` → `bun run build` → `wrangler deploy` → propustka reconcile
@@ -27,7 +31,7 @@ Two self-contained single-account control planes:
 contember CF account              mangoweb CF account
 ├─ vozka⟨contember⟩               ├─ vozka⟨mangoweb⟩
 ├─ propustka⟨contember⟩           ├─ propustka⟨mangoweb⟩
-└─ opice, poplach                 └─ poplach
+└─ opice, poplach                 └─ poplach, revizor
 ```
 
 - A repo deployed to **both** orgs (poplach) is registered in **both** vozkas. Its single
@@ -76,14 +80,27 @@ recipe below.
    Access/schema into mangoweb propustka).
 3. `seed.ts` + install the **mangoweb GitHub App** + verify self-deploy + close the escape hatch.
 
-## Phase 4 — migrate the mangoweb target (poplach)
+## Phase 4 — migrate the mangoweb targets (poplach + revizor)
 
-1. Register **poplach** in vozka⟨mangoweb⟩: env `prod` (mangoweb account), `trigger_ref =
-   refs/heads/deploy/mangoweb`, the mangoweb domain, and poplach's mangoweb secrets into the vault.
-2. Install the **mangoweb GitHub App** on poplach (now both Apps are installed).
-3. Dry-run → deploy via vozka⟨mangoweb⟩ → verify against `poplach-state` in the **mangoweb** account.
-4. Remove the `deploy/mangoweb` target from poplach's `deploy.yml`. Its contember target went in Phase 2,
-   so the whole workflow can now be deleted.
+Two apps deploy to mangoweb: **poplach** (also on contember — config already consolidated in Phase 2,
+account-agnostic) and **revizor** (mangoweb-only). revizor's config consolidation is **DONE**
+(`vozka.config.ts`, commit `c93eef4` on `contember/revizor` `main` — folds `oblaka.ts` +
+`propustka.schema.ts` + `propustka.access.ts`, mirrors poplach; `id='revizor'` continues `revizor-state`),
+so Phase 4 for revizor SKIPS the per-app consolidation recipe and starts at registration.
+
+For **each** of poplach + revizor:
+
+1. Register in vozka⟨mangoweb⟩: env `prod` (mangoweb account), `trigger_ref = refs/heads/deploy/mangoweb`,
+   the mangoweb domain (`poplach.mgwsite.com` / `revizor.mgwsite.com`), and its mangoweb secrets into the
+   vault — poplach: `CF_API_TOKEN` (the AE read token); revizor: NONE mandatory (`PSI_API_KEY` optional —
+   add it to `vozka.config.ts` `pipeline.secrets` + the vault only if real PSI metrics are wanted).
+2. Install the **mangoweb GitHub App** on the repo (now both Apps are installed where applicable).
+3. Dry-run → deploy via vozka⟨mangoweb⟩ → verify against `<app>-state` in the **mangoweb** account
+   (state continuity, NO re-provision; revizor's `revizor-state` = `<id>-state`, like poplach's).
+4. Remove the `deploy/mangoweb` target from the `deploy.yml`. poplach's contember target went in Phase 2,
+   so poplach's whole workflow can then be deleted; revizor is mangoweb-only, so removing its sole live
+   target means revizor's entire `deploy.yml` (+ the now-orphaned `oblaka.ts`, `propustka.*.ts`,
+   `scripts/provision-*.ts`) can be deleted once the vozka deploy is green.
 
 ---
 
@@ -106,10 +123,11 @@ recipe below.
 
 ## Risks & mitigations
 
-- **State continuity** — derived `<id>-state` matches poplach/opice (verified). If any future app's legacy
-  namespace ≠ `<id>-state`, plumb `DeployContext.stateNamespace` through the registry → `RunnerJob` → CLI
-  (the engine supports the override; the worker/runner don't pass it through yet). _Contingency, not needed
-  for poplach/opice._
+- **State continuity** — derived `<id>-state` matches poplach/opice/revizor (verified — revizor's
+  `deploy.yml` uses `--state-namespace=revizor-state` and `id='revizor'` ⇒ `revizor-state`). If any future
+  app's legacy namespace ≠ `<id>-state`, plumb `DeployContext.stateNamespace` through the registry →
+  `RunnerJob` → CLI (the engine supports the override; the worker/runner don't pass it through yet).
+  _Contingency, not needed for poplach/opice/revizor._
 - **Access/schema drift** — diff before cutover; the first reconcile-via-vozka should change nothing.
 - **Secrets** — re-enter into each org's vault; never copy a token between orgs (each account, its own).
 - **Webhook routing** — one GitHub App per vozka; env `trigger_ref` routes by branch; a vozka no-ops on
