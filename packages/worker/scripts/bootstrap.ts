@@ -151,6 +151,12 @@ async function main(): Promise<void> {
 		console.warn('    If this is the FIRST bring-up, abort now and set VOZKA_BOOTSTRAP_ADMINS, or you will lock yourself out.')
 	}
 
+	// oblaka's programmatic deploy() READS the existing wrangler.jsonc relative to process.cwd() but
+	// WRITES it relative to ctx.cwd — so when this script is launched from the repo root the read misses
+	// the committed config and oblaka fresh-gens the DO migrations (losing history → tag-shift → wrangler
+	// 10074 when a DO class is removed). chdir into the worker dir so read + write agree and the committed
+	// migration history is preserved. (The runner path already runs with cwd = the worker dir.)
+	process.chdir(ctx.cwd)
 	const result = await deploy(config, ctx)
 
 	console.log(`\n${result.appId} → ${result.env}: ${result.status}`)

@@ -1,0 +1,86 @@
+/**
+ * File is auto generated DO NOT EDIT
+ */
+{
+	"name": "vozka",
+	"main": "./src/index.ts",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"compatibility_date": "2025-05-25",
+	"routes": [],
+	"observability": {
+		"enabled": true
+	},
+	"triggers": {
+		"crons": [
+			"*/5 * * * *"
+		]
+	},
+	"assets": {
+		"directory": "../dashboard/dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application"
+	},
+	"vars": {
+		"ENVIRONMENT": "local",
+		"VOZKA_DOMAIN": "",
+		"DEV": "true",
+		"VOZKA_BOOTSTRAP_ADMINS": "[]",
+		"CLOUDFLARE_ACCOUNT_ID": "",
+		"PROPUSTKA_URL": "",
+		"GITHUB_APP_ID": ""
+	},
+	"migrations": [
+		{
+			"tag": "v0002",
+			"new_sqlite_classes": [
+				"DeployLock"
+			]
+		},
+		{
+			"tag": "v0003",
+			"deleted_classes": [
+				"RunnerContainer"
+			]
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "DEPLOY_LOCK",
+				"class_name": "DeployLock"
+			}
+		]
+	},
+	"r2_buckets": [
+		{
+			"binding": "RUN_LOGS",
+			"bucket_name": "vozka-run-logs"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "vozka",
+			"database_id": "vozka",
+			"migrations_dir": "./migrations"
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "DEPLOY_QUEUE",
+				"queue": "vozka-deploy"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "vozka-deploy",
+				"max_batch_size": 1,
+				"max_retries": 3,
+				"retry_delay": 30
+			}
+		]
+	}
+}

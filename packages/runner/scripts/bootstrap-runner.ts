@@ -70,6 +70,10 @@ async function main(): Promise<void> {
 		console.log('  RUNNER_BUILD=1 — building the container image from the Dockerfile (requires a docker host).')
 	}
 
+	// oblaka's programmatic deploy() READS the existing wrangler.jsonc relative to process.cwd() but
+	// WRITES it relative to ctx.cwd; chdir into the package dir so they agree and the committed migration
+	// history is preserved (see the same note in packages/worker/scripts/bootstrap.ts).
+	process.chdir(ctx.cwd)
 	const result = await deploy(config, ctx)
 
 	console.log(`\n${result.appId} → ${result.env}: ${result.status}`)

@@ -1,0 +1,57 @@
+/**
+ * File is auto generated DO NOT EDIT
+ */
+{
+	"name": "vozka-runner",
+	"main": "./src/worker.ts",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"compatibility_date": "2025-05-25",
+	"routes": [],
+	"observability": {
+		"enabled": true
+	},
+	"vars": {
+		"ENVIRONMENT": "local"
+	},
+	"migrations": [
+		{
+			"tag": "v0001",
+			"new_sqlite_classes": [
+				"RunnerContainer"
+			]
+		}
+	],
+	"containers": [
+		{
+			"class_name": "RunnerContainer",
+			"name": "vozka-deploy-runner",
+			"image": "./Dockerfile",
+			"image_build_context": "../..",
+			"instance_type": "dev",
+			"max_instances": 3
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "RUNNER",
+				"class_name": "RunnerContainer"
+			}
+		]
+	},
+	"r2_buckets": [
+		{
+			"binding": "RUN_LOGS",
+			"bucket_name": "vozka-run-logs"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "vozka",
+			"database_id": "vozka"
+		}
+	]
+}

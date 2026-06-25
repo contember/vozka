@@ -3,7 +3,11 @@ dist/
 .lopata/
 *.tsbuildinfo
 **/buzola.gen.ts
-**/wrangler.jsonc
+# wrangler.jsonc is generated (DO NOT hand-edit) but COMMITTED: its `migrations` array is the only
+# durable record of a worker's Durable Object migration history. The deploy runner clones the repo and
+# regenerates the config from the committed one — without it, a fresh clone fresh-gens migrations from
+# scratch, shifting tags when a DO class is added/removed, and `wrangler deploy` fails (code 10074).
+# Regenerate with `bun run oblaka` after a resource-graph change and commit the result.
 **/worker-configuration.d.ts
 .wrangler/
 .dev.vars
