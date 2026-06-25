@@ -6,14 +6,13 @@
 // The queue producer is injected (a `DeployQueue`) so this stays testable without a real Queue. The
 // run row is created BEFORE the enqueue so a trigger is durable even if delivery is delayed.
 
-import type { LogLine } from '@vozka/runner'
+import { type LogLine, logsKey } from '@vozka/runner'
 import type { Db, RunRow } from '../db'
 import { uuidv7 } from '../db'
 import { error, json, readJson } from '../http'
 import type { Authorized } from '../iam'
 import { stringField } from '../json'
 import { isRefPattern } from '../ref-match'
-import { logsKey } from '../relay'
 import type { DeployJobMessage } from '../run-lifecycle'
 
 /**

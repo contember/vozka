@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { Container, D1Database, Queue, R2Bucket, ServiceReference, type Worker } from 'vozka-config'
+import { D1Database, Queue, R2Bucket, ServiceReference, type Worker } from 'vozka-config'
 import type { buildVozkaWorker as BuildVozkaWorker } from '../../vozka.config'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from '../actions'
 
@@ -34,12 +34,15 @@ describe('defineApp(vozka config)', () => {
 		expect(typeof config.resources).toBe('function')
 	})
 
-	test('the resource graph builds vozka full binding set (Container/R2/D1/Queue + IAM off-local)', () => {
+	test('the resource graph builds vozka full binding set (RUNNER_SVC/R2/D1/Queue + IAM off-local)', () => {
 		const worker: Worker = config.resources({ env: 'stage', domain: 'vozka.test.example.com' })
 		expect(worker.options.name).toBe('vozka')
 		expect(worker.options.main).toBe('./src/index.ts')
 
-		expect(binding(worker, 'RUNNER')).toBeInstanceOf(Container)
+		// The deploy executor is a SEPARATE worker (vozka-runner): vozka binds it as a SERVICE, not a
+		// Container — so a deploy of vozka never resets the container running it. No Container here anymore.
+		expect(binding(worker, 'RUNNER_SVC')).toBeInstanceOf(ServiceReference)
+		expect(binding(worker, 'RUNNER')).toBeUndefined()
 		expect(binding(worker, 'RUN_LOGS')).toBeInstanceOf(R2Bucket)
 		expect(binding(worker, 'DB')).toBeInstanceOf(D1Database)
 		expect(binding(worker, 'DEPLOY_QUEUE')).toBeInstanceOf(Queue)
@@ -59,12 +62,12 @@ describe('defineApp(vozka config)', () => {
 		expect(worker.options.assets?.directory).toBe('../dashboard/dist')
 	})
 
-	test('local omits the IAM binding and runs the FakeIamClient (DEV=true)', () => {
+	test('local omits the off-local service bindings (IAM + vozka-runner) and runs the FakeIamClient (DEV=true)', () => {
 		const worker = buildVozkaWorker({ env: 'local' })
 		expect(binding(worker, 'IAM')).toBeUndefined()
 		expect(worker.options.vars?.['DEV']).toBe('true')
-		// The Container is still bound locally (the DO class), just at the dev instance type.
-		expect(binding(worker, 'RUNNER')).toBeInstanceOf(Container)
+		// vozka-runner is an off-local service binding too — absent locally (no container deploys in dev).
+		expect(binding(worker, 'RUNNER_SVC')).toBeUndefined()
 	})
 
 	test('domain from ctx flows into the VOZKA_DOMAIN var; off-local DEV is empty', () => {

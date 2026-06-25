@@ -1,10 +1,10 @@
-import type { LogLine, RunnerJob, RunnerStatus } from '@vozka/runner'
 import { describe, expect, test } from 'bun:test'
+import type { LogLine, RunnerJob, RunnerStatus } from '../protocol'
 import { type ContainerLike, logsKey, type R2Like, relayRun, statusKey } from '../relay'
 
-// The relay is the testable core of `startRun`. These tests drive it against a FAKE container (its
-// /run, /logs, /status endpoints) and a FAKE R2 — no Cloudflare, no Docker. This is the part of the
-// Worker↔DO path we can verify offline; the real DO + container provisioning is CF-only.
+// The relay is the testable core of vozka-runner's `startRun`. These tests drive it against a FAKE
+// container (its /run, /logs, /status endpoints) and a FAKE R2 — no Cloudflare, no Docker. This is the
+// part of the Worker↔DO path we can verify offline; the real DO + container provisioning is CF-only.
 
 /** An in-memory R2 stand-in capturing the last value written per key. */
 class FakeR2 implements R2Like {

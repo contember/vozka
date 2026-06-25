@@ -2,12 +2,14 @@
 // `@cloudflare/containers` `Container` whose `defaultPort` matches the in-container server, with a
 // generous `sleepAfter` so a long clone + `bun install` + `vozka deploy` is never reaped mid-run.
 //
-// One DO instance == one container == one run. The control-plane Worker addresses a fresh instance
-// per run (`idFromName(runId)`), `startAndWaitForPorts()`, then relays the job through it.
+// One DO instance == one container == one run. The vozka-runner Worker addresses a fresh instance per
+// run (`idFromName(runId)`), `startAndWaitForPorts()`, then relays the job through it. This DO lives in
+// vozka-runner (NOT the vozka control plane) so a deploy of vozka never resets the container that is
+// running that very deploy — the self-reset that previously orphaned vozka's own runs.
 
 import { Container } from '@cloudflare/containers'
-import { RUNNER_PORT } from '@vozka/runner'
-import type { Env } from './env'
+import { RUNNER_PORT } from './protocol'
+import type { Env } from './worker-env'
 
 export class RunnerContainer extends Container<Env> {
 	// Must match the in-container Bun server's fixed port (and the oblaka Container image's EXPOSE).

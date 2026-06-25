@@ -1,11 +1,11 @@
-// The Worker→container run relay — the testable core of `startRun`, decoupled from the real DO so
-// it can be unit-tested with fakes (no Cloudflare, no Docker).
+// The Worker→container run relay — the testable core of vozka-runner's `startRun`, decoupled from the
+// real DO so it can be unit-tested with fakes (no Cloudflare, no Docker).
 //
 // Given a started container stub and an R2-like bucket, it: POSTs the `RunnerJob` to `/run`, tails
 // the `/logs` NDJSON stream relaying every line to R2 (full accumulated log re-flushed under one
 // run-keyed object), then polls `/status` for the terminal outcome and persists that too.
 
-import type { LogLine, RunnerJob, RunnerStatus } from '@vozka/runner'
+import type { LogLine, RunnerJob, RunnerStatus } from './protocol'
 
 /** The slice of a Cloudflare R2 bucket the relay needs. Real `R2Bucket` satisfies this. */
 export interface R2Like {

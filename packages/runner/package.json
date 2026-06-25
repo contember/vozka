@@ -14,12 +14,20 @@
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"serve": "bun src/serve.ts",
-		"docker:build": "docker build -f Dockerfile -t vozka-runner ../.."
+		"docker:build": "docker build -f Dockerfile -t vozka-runner ../..",
+		"oblaka": "bunx oblaka oblaka.ts",
+		"oblaka:deploy": "bunx oblaka oblaka.ts --remote",
+		"bootstrap": "bun run scripts/bootstrap-runner.ts"
 	},
 	"dependencies": {
+		"@cloudflare/containers": "^0.0.30",
+		"vozka-config": "workspace:*",
 		"@vozka/core": "workspace:*"
 	},
 	"devDependencies": {
-		"@types/bun": "latest"
+		"@cloudflare/workers-types": "^4.20251001.0",
+		"@types/bun": "latest",
+		"oblaka-iac": "^0.0.18",
+		"wrangler": "4.72.0"
 	}
 }

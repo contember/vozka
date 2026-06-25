@@ -2,7 +2,15 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
-		"types": ["@types/bun"]
+		// This package now hosts BOTH the in-container engine (plain Bun) AND the vozka-runner Worker
+		// (`worker.ts` / `RunnerContainer.ts`), so it needs the Workers globals (`cloudflare:workers`,
+		// DurableObjectNamespace, R2Bucket, D1Database) alongside Bun's — same pair as packages/worker.
+		"types": ["@cloudflare/workers-types", "@types/bun"],
+		// `oblaka.ts` + `vozka-runner.config.ts` import oblaka-iac, whose raw-TS source trips these two
+		// flags — relaxed ONLY for that dependency's source, exactly as packages/worker does for its own
+		// `vozka.config.ts`. Our own code under src/ stays fully strict via the base config otherwise.
+		"noUncheckedIndexedAccess": false,
+		"noPropertyAccessFromIndexSignature": false
 	},
-	"include": ["src/**/*"]
+	"include": ["src/**/*", "oblaka.ts", "vozka-runner.config.ts", "scripts/**/*"]
 }

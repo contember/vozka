@@ -1,10 +1,9 @@
-import { isRunnerJob, type RunnerJob } from '@vozka/runner'
+import { isRunnerJob, type RelayResult, type RunnerJob } from '@vozka/runner'
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import { handleApi } from './api/router'
 import { Db } from './db'
 import type { Env } from './env'
 import { createIam } from './iam'
-import { type ContainerLike, type RelayResult, relayRun } from './relay'
 import { pollPublicRepos } from './repo-poll'
 import { GitHubAppRepoSource, type RepoSource } from './repo-source'
 import { type DeployJobMessage, executeDeploy, type RunDeps, type RunOutcome } from './run-lifecycle'
@@ -13,7 +12,6 @@ import { Vault } from './vault'
 import { handleWebhook } from './webhook'
 
 export { DeployLock } from './DeployLock'
-export { RunnerContainer } from './RunnerContainer'
 
 /**
  * How long a deploy may hold its per-app-env lock before it's treated as stale and auto-released. A
@@ -37,19 +35,19 @@ const DEPLOY_LOCK_REQUEUE_DELAY_S = 30
  */
 export class Vozka extends WorkerEntrypoint<Env> {
 	/**
-	 * Start one deploy run: address a fresh container instance for this `runId`, wait for its server
-	 * to come up, then relay the job through it (logs + status → R2). Returns the terminal status.
-	 * RPC-callable (service binding) and the engine the queue consumer drives.
+	 * Start one deploy run by handing it to vozka-runner (the deploy EXECUTOR) over the `RUNNER_SVC`
+	 * service binding. vozka-runner boots the per-run container, relays its logs → R2, and records the
+	 * terminal status → D1 itself — so the run is recorded even if THIS worker is reset mid-deploy (which
+	 * is exactly what a vozka self-deploy does: it resets vozka, not vozka-runner). The queue consumer
+	 * drives this; it's also reachable via the M2 `POST /api/runs` compatibility route.
 	 */
 	async startRun(job: RunnerJob): Promise<RelayResult> {
-		const id = this.env.RUNNER.idFromName(job.runId)
-		const container = this.env.RUNNER.get(id)
-		await container.startAndWaitForPorts()
-		const relayable: ContainerLike = {
-			containerFetch: (input, init) => container.containerFetch(input, init),
-			heartbeat: () => container.heartbeat(),
+		if (this.env.RUNNER_SVC === undefined) {
+			// Off-local only (like IAM): local dev has no vozka-runner worker bound, and a real deploy
+			// can't run locally anyway (no CF creds). Fail loudly rather than silently no-op.
+			throw new Error('RUNNER_SVC is not bound — vozka-runner is an off-local service binding (no container deploys in local dev)')
 		}
-		return relayRun(relayable, this.env.RUN_LOGS, job)
+		return this.env.RUNNER_SVC.startRun(job)
 	}
 
 	override async fetch(request: Request): Promise<Response> {

@@ -5,18 +5,24 @@
  * service binding, and the GitHub App + secret-resolver inputs.
  */
 import type { IamRpc } from '@propustka/client'
+import type { VozkaRunner } from '@vozka/runner'
 import type { DeployLock } from './DeployLock'
 import type { DeployJobMessage } from './run-lifecycle'
-import type { RunnerContainer } from './RunnerContainer'
 
 export interface Env {
 	/** Control-plane SPA static assets, served for non-`/api/*`, non-webhook paths. */
 	ASSETS: Fetcher
-	/** Per-run deploy-runner container, backed by a Durable Object. */
-	RUNNER: DurableObjectNamespace<RunnerContainer>
+	/**
+	 * vozka-runner — the deploy EXECUTOR, over a service binding. The control plane hands a run to it
+	 * (`RUNNER_SVC.startRun(job)`); vozka-runner boots the container, relays logs → R2, and records the
+	 * terminal status → D1. Split into its own worker so a deploy of vozka never resets the container
+	 * running that deploy. OPTIONAL because it's declared off-local only (local dev has no runner worker,
+	 * mirroring the IAM binding); `startRun` fails loudly if a real deploy is triggered locally.
+	 */
+	RUNNER_SVC?: Service<VozkaRunner>
 	/** Per-app-env deploy lock (one DO instance per `<app>:<env>`) — serializes deploys of one target. */
 	DEPLOY_LOCK: DurableObjectNamespace<DeployLock>
-	/** R2 bucket the relay writes run logs + terminal status into, keyed by run id. */
+	/** R2 bucket run logs + terminal status are written into (by vozka-runner), keyed by run id; read by the API. */
 	RUN_LOGS: R2Bucket
 	/** Registry (accounts/apps/app_envs/app_secrets) + run history. See migrations/0001_init.sql. */
 	DB: D1Database

@@ -1,6 +1,7 @@
 # @vozka/worker
 
-The control-plane Worker (`WorkerEntrypoint`): D1 registry + Queue + container runner + encrypted vault.
+The control-plane Worker (`WorkerEntrypoint`): D1 registry + Queue + encrypted vault, handing each deploy
+run off to the vozka-runner executor (`@vozka/runner`) over a service binding.
 Drives a deploy from a GitHub push or a manual trigger. Assumes the root CLAUDE.md.
 
 ## Commands (this package)
@@ -19,8 +20,11 @@ bun run seed                                       # register apps (single-accou
 
 `fetch` routes: `/api/health` → ok · `POST /webhooks/github` → webhook · `/api/*` → ACL-gated control
 surface · everything else → dashboard `ASSETS`. A trigger writes a `pending` run to D1 then enqueues;
-`queue()` consumes (one run/message) → `executeDeploy` → `startRun` (RunnerContainer DO) → relay
-logs→R2 + status→D1. Env/bindings shape: `src/env.ts`. Schema: `migrations/*.sql`.
+`queue()` consumes (one run/message) → `executeDeploy` → `startRun`, which HANDS THE RUN OFF to
+**vozka-runner** (a SEPARATE worker, `@vozka/runner`) over the `RUNNER_SVC` service binding. vozka-runner
+boots the per-run container, relays logs→R2, and writes the terminal status→D1 (so the run is recorded
+even if THIS worker is reset mid-deploy — see invariants). The control plane keeps the registry/run D1
+writes, the lock, secret resolution + assembly. Env/bindings shape: `src/env.ts`. Schema: `migrations/*.sql`.
 
 Three deploy TRIGGERS, all converging on the same `createRun` + enqueue: (1) the GitHub-App push
 webhook (`src/webhook.ts`, private repos); (2) the manual Deploy button (`triggerDeploy`); (3) the cron
@@ -51,6 +55,15 @@ a glob trigger_ref falls back to the default branch for a no-ref manual deploy.
   `accounts` registry table; WHETHER a deploy reconciles is decided by the app's config (`access`/`schema`).
 - **Run lifecycle is status-guarded + idempotent** (`src/run-lifecycle.ts`): `markRunStarted` only moves
   pending→running, so a redelivered queue message is a no-op. ack handled runs; retry only on an unexpected throw.
+- **The deploy EXECUTOR is a separate worker (`@vozka/runner` / `vozka-runner`), reached via `RUNNER_SVC`.**
+  The control plane has NO `Container` binding — `startRun` is `RUNNER_SVC.startRun(job)` (off-local only,
+  like IAM; locally it throws — no container deploys in dev). The split exists because a deploy's final
+  step runs `wrangler deploy` INSIDE the container, and when the target is vozka that resets vozka's DOs —
+  so a container hosted in vozka would reset ITSELF mid-deploy. Hosting it in vozka-runner means a vozka
+  deploy never touches it. As a consequence vozka has no `Container` → no docker → it's deployable THROUGH
+  the runner. vozka-runner ALSO writes the terminal run status→D1 (`@vozka/runner`'s `finishRun`), a
+  belt-and-suspenders co-write with `markRunFinished` made safe by the `WHERE status IN ('pending','running')`
+  guard — whichever survives the deploy records the run. vozka-runner is deployed out-of-band (its own bootstrap).
 - **Per-app-env deploy lock** (`src/DeployLock.ts`, a DO; one instance per `<app>:<env>`): `executeDeploy`
   takes it before starting and releases it in `finally`, so two triggers can't deploy the same target
   concurrently (race on cf-state / wrangler / propustka). A contended run returns `deferred` — left `pending`

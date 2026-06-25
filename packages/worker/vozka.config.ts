@@ -12,20 +12,8 @@
 // NAME in `pipeline.secrets` and provisioned out-of-band (`wrangler secret put` / `.dev.vars`).
 
 import type { AppAccess, AppSchema, ResourceContext } from 'vozka-config'
-import { Container, D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from 'vozka-config'
-import runnerImageManifest from '../runner/image.json'
+import { D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from 'vozka-config'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from './src/actions'
-
-/** Container instance type per stage — dev locally, larger off-local; any other env → basic. */
-const instanceTypeFor = (env: string): 'dev' | 'basic' | 'standard' => {
-	if (env === 'local') {
-		return 'dev'
-	}
-	if (env === 'prod') {
-		return 'standard'
-	}
-	return 'basic'
-}
 
 /**
  * Build vozka's full Cloudflare resource graph for one environment. This is the SINGLE source of the
@@ -39,17 +27,6 @@ const instanceTypeFor = (env: string): 'dev' | 'basic' | 'standard' => {
 export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 	const { env, domain } = ctx
 	const isLocal = env === 'local'
-	const instanceType = instanceTypeFor(env)
-
-	// The runner image: off-local, reference a pre-built image PINNED in the repo (packages/runner/image.json,
-	// bumped by the runner-image CI workflow on packages/runner|core|config changes) — so a deploy THROUGH the
-	// runner needs NO docker AND the image ref travels WITH the code (like a lockfile; no drift vs a mutable
-	// registry var). Local dev builds from the Dockerfile; RUNNER_BUILD=1 forces a Dockerfile build (first
-	// bring-up, or a deliberate rebuild on a docker host). The CF registry namespace is the account id.
-	const runnerFromDockerfile = isLocal || process.env['RUNNER_BUILD'] === '1' || runnerImageManifest.tag === ''
-	const runnerImage = runnerFromDockerfile
-		? '../runner/Dockerfile'
-		: `registry.cloudflare.com/${process.env['CLOUDFLARE_ACCOUNT_ID'] ?? ''}/${runnerImageManifest.image}:${runnerImageManifest.tag}`
 
 	return new Worker({
 		dir: '.',
@@ -94,19 +71,6 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 			GITHUB_APP_ID: process.env['GITHUB_APP_ID'] ?? '',
 		},
 		bindings: {
-			// Per-run deploy-runner container. The DO class lives in src/RunnerContainer.ts and is
-			// re-exported from the Worker entry (src/index.ts) so wrangler can find it.
-			RUNNER: new Container({
-				name: 'vozka-runner',
-				className: 'RunnerContainer',
-				image: runnerImage,
-				// `image_build_context` only applies to a Dockerfile build — it lets the Dockerfile COPY sibling
-				// packages (config/core/runner) from the repo ROOT (relative to packages/worker). A pre-built
-				// registry image needs no build context, so it's omitted there. (Build context requires oblaka-iac >=0.0.18.)
-				...(runnerFromDockerfile ? { imageBuildContext: '../..' } : {}),
-				maxInstances: env === 'prod' ? 10 : 3,
-				instanceType,
-			}),
 			// Per-app-env deploy lock — serializes deploys of the same (app, env) so two triggers can't
 			// race on cf-state / wrangler / propustka. DO class in src/DeployLock.ts, re-exported from the
 			// Worker entry (src/index.ts) so wrangler finds it.
@@ -129,8 +93,14 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 					retryDelay: 30,
 				},
 			}),
-			// propustka IAM (off-local only). Locally src/iam.ts uses FakeIamClient (DEV='true').
-			...(isLocal ? {} : { IAM: new ServiceReference('propustka-worker') }),
+			// Off-local service bindings (local dev has neither): propustka IAM (src/iam.ts uses
+			// FakeIamClient locally, DEV='true') + vozka-runner, the deploy executor the queue consumer
+			// hands each run to (RUNNER_SVC.startRun). vozka-runner is its OWN worker so a deploy of vozka
+			// never resets the container running it — deployed out-of-band (packages/runner bootstrap).
+			...(isLocal ? {} : {
+				IAM: new ServiceReference('propustka-worker'),
+				RUNNER_SVC: new ServiceReference('vozka-runner'),
+			}),
 		},
 	})
 }

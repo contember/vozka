@@ -30,7 +30,7 @@ Per-package dev/build commands live in each package's CLAUDE.md (core, worker, r
 packages/config/      # vozka-config — the app-authoring surface (defineApp + re-exports). 3 files; covered here.
 packages/core/        # @vozka/core — deploy engine + the `vozka` CLI.        → CLAUDE.md
 packages/worker/      # @vozka/worker — the control-plane Worker.             → CLAUDE.md
-packages/runner/      # @vozka/runner — the CI/container deploy runner.       → CLAUDE.md
+packages/runner/      # @vozka/runner — the container deploy runner + the vozka-runner executor worker. → CLAUDE.md
 packages/dashboard/   # @vozka/dashboard — buzola + React SPA.               → CLAUDE.md
 ```
 
@@ -49,19 +49,24 @@ resource primitive and the propustka declaration types, so a `vozka.config.ts` n
 - **`oblaka-iac` resolves from npm, pinned to `^0.0.17`** (the first published version with the programmatic
   `deploy()` the engine calls). The old `file:../oblaka` override is gone. vozka + oblaka + propustka are a
   co-versioned suite — bump the pin deliberately (every package + the runner image's `docker/package.json`).
-- **`config`, `core`, `worker` relax exactly two strict flags** (`noUncheckedIndexedAccess`,
-  `noPropertyAccessFromIndexSignature`) ONLY to tolerate oblaka's raw-TS source. Keep our own code strict;
-  never widen the relaxation or add `as` / `@ts-ignore` / `any` to work around oblaka — ask first.
+- **`config`, `core`, `worker`, `runner` relax exactly two strict flags** (`noUncheckedIndexedAccess`,
+  `noPropertyAccessFromIndexSignature`) ONLY to tolerate oblaka's raw-TS source — `runner` joined the set
+  when it began hosting `vozka-runner.config.ts` (the executor split), the same reason `worker` relaxes
+  for its `vozka.config.ts`. Keep our own code strict; never widen the relaxation further or add `as` /
+  `@ts-ignore` / `any` to work around oblaka — ask first.
 - **NEVER log credentials or secret values.** They flow control-plane → `RunnerJob` → child env only; on
   error log a short message, never the error object that may carry a clone URL with an embedded token.
 - **Self-deploy: `packages/worker/vozka.config.ts` is the single source of truth** for vozka's own
-  resources; `oblaka.ts` is a thin shim over it. Never re-declare resources in `oblaka.ts`.
+  resources; `oblaka.ts` is a thin shim over it. Never re-declare resources in `oblaka.ts`. Same shape for
+  the EXECUTOR: `packages/runner/vozka-runner.config.ts` is the source of truth for vozka-runner (the
+  separate worker that runs deploys, split out so a vozka deploy never resets the container running it);
+  its `oblaka.ts` is a thin shim too. vozka deploys through the runner; vozka-runner deploys out-of-band.
 
 ## Module-Specific Context
 
 - `packages/core/CLAUDE.md` — Read when: touching the deploy engine, the plan, the CLI, or the runtime seam.
 - `packages/worker/CLAUDE.md` — Read when: touching the control plane — API/ACL, vault, secret resolution, run lifecycle, webhook, D1, or its infra config.
-- `packages/runner/CLAUDE.md` — Read when: touching the container image, the in-container server, or the Worker↔container protocol.
+- `packages/runner/CLAUDE.md` — Read when: touching the container image, the in-container server, the Worker↔container protocol, or the vozka-runner executor worker (the deploy seam, the relay, the runner image manifest).
 - `packages/dashboard/CLAUDE.md` — Read when: touching the SPA — routes, the API client, DTOs, or the buzola codegen.
 
 Project background: `HANDOFF.md` (the deploy boundary + open decisions), `MIGRATION.md` (moving

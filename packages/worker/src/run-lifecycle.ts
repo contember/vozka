@@ -16,9 +16,8 @@
 // The relay (M2) already streams logs + terminal status to R2 under runs/<id>/*. This module records
 // the SAME terminal outcome into D1 so the dashboard reads run history from D1 and the log from R2.
 
-import type { RunnerJob } from '@vozka/runner'
+import { logsKey, type RunnerJob } from '@vozka/runner'
 import { type AppEnvRow, type AppRow, type Db, type RunRow } from './db'
-import { logsKey } from './relay'
 import type { RepoSource } from './repo-source'
 import type { SecretResolver } from './secret-resolver'
 

@@ -1,9 +1,9 @@
 import { FakeIamClient } from '@propustka/client'
+import { logsKey } from '@vozka/runner'
 import { describe, expect, test } from 'bun:test'
 import type { ApiDeps } from '../api/router'
 import { handleApi } from '../api/router'
 import { uuidv7 } from '../db'
-import { logsKey } from '../relay'
 import type { DeployJobMessage } from '../run-lifecycle'
 import { createHarness } from './helpers/harness'
 
