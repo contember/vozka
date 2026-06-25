@@ -114,6 +114,25 @@ export interface PutAppSecretRequest {
 	env?: string | null
 }
 
+// ── App vars (mirror toAppVarDto — non-secret plaintext config, value IS shown) ──
+
+export interface AppVarDto {
+	appId: string
+	/** null = the all-env layer; a string narrows the var to that env. */
+	env: string | null
+	name: string
+	/** The plaintext value — vars are non-secret config, so it's readable. */
+	value: string
+	createdAt: number
+}
+
+export interface PutAppVarRequest {
+	name: string
+	value: string
+	/** null / omitted = the all-env layer; a string narrows it to that env. */
+	env?: string | null
+}
+
 // ── Onboarding (register-app) ────────────────────────────────────────────────────
 
 export interface RegisterAppRequest extends AppOptionalFields {

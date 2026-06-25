@@ -9,10 +9,12 @@ import {
 	type AppDto,
 	type AppEnvDto,
 	type AppSecretDto,
+	type AppVarDto,
 	type CursorList,
 	type ListResponse,
 	type PutAppEnvRequest,
 	type PutAppSecretRequest,
+	type PutAppVarRequest,
 	type RunDto,
 	type SetSecretValueRequest,
 	type TriggerDeployRequest,
@@ -26,17 +28,18 @@ import { fmtDate, qs, shortRef, shortSha } from '../../lib/format'
 export default createPage()
 	.params({ id: 'string' })
 	.loader(async ({ params }) => {
-		const [app, envs, secrets, runs] = await Promise.all([
+		const [app, envs, secrets, vars, runs] = await Promise.all([
 			api.get<AppDto>(`/apps/${params.id}`),
 			api.get<ListResponse<AppEnvDto>>(`/apps/${params.id}/envs`),
 			api.get<ListResponse<AppSecretDto>>(`/apps/${params.id}/secrets`),
+			api.get<ListResponse<AppVarDto>>(`/apps/${params.id}/vars`),
 			api.get<CursorList<RunDto>>(`/runs${qs({ app: params.id, limit: 10 })}`),
 		])
-		return { app, envs: envs.items, secrets: secrets.items, runs: runs.items }
+		return { app, envs: envs.items, secrets: secrets.items, vars: vars.items, runs: runs.items }
 	})
 	.route('/apps/:id')
 	.render(({ data, invalidate }) => {
-		const { app, envs, secrets, runs } = data
+		const { app, envs, secrets, vars, runs } = data
 		const [confirming, setConfirming] = useState(false)
 		const navigate = useNavigate()
 
@@ -124,6 +127,30 @@ export default createPage()
 						{secrets.map((secret) => <SecretRow key={`${secret.env ?? '*'}/${secret.name}`} appId={app.id} secret={secret} onDone={invalidate} />)}
 					</Table>
 					<AddSecretForm appId={app.id} envs={envs} onDone={invalidate} />
+				</section>
+
+				<section>
+					<h2>Vars</h2>
+					<p className="hint">
+						Non-secret config <strong>vars</strong> deployed with this app. The <code>*</code>{' '}
+						layer applies to every env; an env-specific entry overrides it. Vars are plaintext — values are shown.
+					</p>
+					<Table
+						colSpan={4}
+						isEmpty={vars.length === 0}
+						empty="No vars. Add one below."
+						head={
+							<tr>
+								<th>Name</th>
+								<th>Layer</th>
+								<th>Value</th>
+								<th />
+							</tr>
+						}
+					>
+						{vars.map((v) => <VarRow key={`${v.env ?? '*'}/${v.name}`} appId={app.id} appVar={v} onDone={invalidate} />)}
+					</Table>
+					<AddVarForm appId={app.id} envs={envs} onDone={invalidate} />
 				</section>
 
 				<section>
@@ -457,29 +484,43 @@ function SetSecretValueRow(
 	)
 }
 
+/** How a freshly-added secret gets its value: as a raw vault value, or as a reference. */
+type AddSecretMode = 'vault' | 'ref'
+
 function AddSecretForm({ appId, envs, onDone }: { appId: string; envs: AppEnvDto[]; onDone: () => void }) {
 	const [open, setOpen] = useState(false)
+	/** Default to entering a raw value stored in the vault; 'ref' registers a reference instead. */
+	const [mode, setMode] = useState<AddSecretMode>('vault')
 	const [name, setName] = useState('')
+	const [value, setValue] = useState('')
 	const [valueRef, setValueRef] = useState('')
 	/** '' = the all-env (*) layer; otherwise an env name. */
 	const [env, setEnv] = useState('')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
+	function reset() {
+		setName('')
+		setValue('')
+		setValueRef('')
+		setEnv('')
+	}
+
 	async function submit(e: React.FormEvent) {
 		e.preventDefault()
 		setBusy(true)
 		setError(null)
 		try {
-			const body: PutAppSecretRequest = {
-				name: name.trim(),
-				valueRef: valueRef.trim(),
-				env: env === '' ? null : env,
+			const layer = env === '' ? null : env
+			if (mode === 'vault') {
+				// Stores the value encrypted in the vault and creates/upserts the `vault:<id>` row.
+				const body: SetSecretValueRequest = { value, env: layer }
+				await api.put(`/apps/${appId}/secrets/${name.trim()}/value`, body)
+			} else {
+				const body: PutAppSecretRequest = { name: name.trim(), valueRef: valueRef.trim(), env: layer }
+				await api.put(`/apps/${appId}/secrets`, body)
 			}
-			await api.put(`/apps/${appId}/secrets`, body)
-			setName('')
-			setValueRef('')
-			setEnv('')
+			reset()
 			setOpen(false)
 			onDone()
 		} catch (cause) {
@@ -500,6 +541,13 @@ function AddSecretForm({ appId, envs, onDone }: { appId: string; envs: AppEnvDto
 	return (
 		<form className="panel form inline" onSubmit={submit}>
 			<label>
+				Source
+				<select value={mode} onChange={(e) => setMode(e.target.value === 'ref' ? 'ref' : 'vault')}>
+					<option value="vault">Vault value</option>
+					<option value="ref">Reference</option>
+				</select>
+			</label>
+			<label>
 				Name
 				<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="STRIPE_KEY" autoComplete="off" />
 			</label>
@@ -510,12 +558,125 @@ function AddSecretForm({ appId, envs, onDone }: { appId: string; envs: AppEnvDto
 					{envs.map((e) => <option key={e.env} value={e.env}>{e.env}</option>)}
 				</select>
 			</label>
-			<label>
-				Value ref
-				<input required value={valueRef} onChange={(e) => setValueRef(e.target.value)} placeholder="env:STRIPE_KEY" autoComplete="off" />
-			</label>
+			{mode === 'vault'
+				? (
+					<label>
+						Value
+						<input type="password" required value={value} onChange={(e) => setValue(e.target.value)} placeholder="Secret value" autoComplete="off" />
+						<span className="hint">Stored encrypted in the vault. Never shown again.</span>
+					</label>
+				)
+				: (
+					<label>
+						Value ref
+						<input required value={valueRef} onChange={(e) => setValueRef(e.target.value)} placeholder="env:STRIPE_KEY" autoComplete="off" />
+					</label>
+				)}
 			<div className="filter-actions">
 				<button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Add secret'}</button>
+				<button type="button" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+			</div>
+			{error && <p className="error-text" role="alert">{error}</p>}
+		</form>
+	)
+}
+
+function VarRow({ appId, appVar, onDone }: { appId: string; appVar: AppVarDto; onDone: () => void }) {
+	const [confirming, setConfirming] = useState(false)
+
+	async function remove() {
+		await api.del(`/apps/${appId}/vars/${appVar.name}${qs({ env: appVar.env })}`)
+		onDone()
+	}
+
+	return (
+		<tr>
+			<td>
+				<code>{appVar.name}</code>
+			</td>
+			<td>{appVar.env === null ? <span className="muted">* (all envs)</span> : appVar.env}</td>
+			<td>
+				<code>{appVar.value}</code>
+			</td>
+			<td className="row-actions">
+				<button type="button" className="danger small" onClick={() => setConfirming(true)}>Delete</button>
+				{confirming && (
+					<ConfirmDialog
+						title="Delete var"
+						confirmLabel="Delete"
+						body={
+							<p>
+								Delete var <strong>{appVar.name}</strong> ({appVar.env ?? 'all envs'})?
+							</p>
+						}
+						onConfirm={remove}
+						onClose={() => setConfirming(false)}
+					/>
+				)}
+			</td>
+		</tr>
+	)
+}
+
+function AddVarForm({ appId, envs, onDone }: { appId: string; envs: AppEnvDto[]; onDone: () => void }) {
+	const [open, setOpen] = useState(false)
+	const [name, setName] = useState('')
+	const [value, setValue] = useState('')
+	/** '' = the all-env (*) layer; otherwise an env name. */
+	const [env, setEnv] = useState('')
+	const [busy, setBusy] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+
+	async function submit(e: React.FormEvent) {
+		e.preventDefault()
+		setBusy(true)
+		setError(null)
+		try {
+			const body: PutAppVarRequest = {
+				name: name.trim(),
+				value,
+				env: env === '' ? null : env,
+			}
+			await api.put(`/apps/${appId}/vars`, body)
+			setName('')
+			setValue('')
+			setEnv('')
+			setOpen(false)
+			onDone()
+		} catch (cause) {
+			setError(cause instanceof ApiError ? cause.message : 'Save failed.')
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	if (!open) {
+		return (
+			<div className="add-row">
+				<button type="button" className="small" onClick={() => setOpen(true)}>+ Add var</button>
+			</div>
+		)
+	}
+
+	return (
+		<form className="panel form inline" onSubmit={submit}>
+			<label>
+				Name
+				<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="LOG_LEVEL" autoComplete="off" />
+			</label>
+			<label>
+				Layer
+				<select value={env} onChange={(e) => setEnv(e.target.value)}>
+					<option value="">* (all envs)</option>
+					{envs.map((e) => <option key={e.env} value={e.env}>{e.env}</option>)}
+				</select>
+			</label>
+			<label>
+				Value
+				<input required value={value} onChange={(e) => setValue(e.target.value)} placeholder="info" autoComplete="off" />
+			</label>
+			<div className="filter-actions">
+				<button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Add var'}</button>
 				<button type="button" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
 			</div>
 			{error && <p className="error-text" role="alert">{error}</p>}
