@@ -1,25 +1,25 @@
 /**
- * The SHARED vozka bring-up — the second half of BOTH flows (migrate + fresh) once propustka coords
- * are in hand. It:
+ * The SHARED vozka bring-up — the second half of BOTH flows (migrate + fresh) once propustka coords are
+ * in hand. In the per-account base-repo model it does NOT deploy from the laptop; instead it:
  *   1. generates the vault KEK (printed ONCE, loud),
- *   2. creates the GitHub App via the manifest flow and prompts for its install,
- *   3. assembles the full env Record the bootstrap script expects,
- *   4. shells out to `vozka platform deploy --dry-run` (vozka-runner + vozka), shows the plan, confirms, real run,
- *   5. health-checks the live control plane,
- *   6. optionally seeds the app registry (scripts/seed.ts) — else points the operator at the dashboard,
- *   7. reminds the operator to close the escape hatch once propustka grants them admin.
+ *   2. creates the vozka GitHub App via the manifest flow + prompts to install it on the app repos,
+ *   3. assembles the full secret/var set vozka needs,
+ *   4. writes them into the account's `<org>/vozka-platform` repo (`gh secret set` / `gh variable set`),
+ *   5. triggers that repo's `platform` workflow — GitHub Actions runs the REAL deploy (vozka-runner + vozka),
+ *   6. reminds the operator to close the escape hatch once propustka grants them admin.
  *
- * It ORCHESTRATES the existing `vozka platform deploy` command + seed.ts (shells out) — it never duplicates
- * their deploy logic. Secret values flow only into the child env; this module never logs a value (the vault
- * key is the one value printed, ONCE, by design — it has no other home and the operator must store it).
+ * The actual deploy runs in CI (the base-repo pipeline calls `vozka platform deploy`), NOT here — so the
+ * laptop never needs the CF deploy toolchain or docker. Secret VALUES flow only into `gh` over stdin; this
+ * module never logs a value (the vault key is the one value printed, ONCE, by design — the operator must
+ * store it).
  */
 
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { fromEnv, persistEnv } from './envfile'
-import { createAppViaManifest, type CreatedGitHubApp, promptInstall } from './github-app'
+import { createAppViaManifest, type CreatedGitHubApp, hasGhCli, promptInstall } from './github-app'
 import { action, detail, info, ok, step, url, warn } from './log'
-import { confirm, secret, select, text } from './prompt'
+import { confirm, select, text } from './prompt'
 import { run } from './shell'
 
 /** Everything collected by a flow before the shared bring-up runs. */
@@ -37,55 +37,49 @@ export interface BringupInput {
 	propustkaClientSecret: string
 	/** First-operator admin email(s) for VOZKA_BOOTSTRAP_ADMINS (escape hatch). */
 	bootstrapAdmins: string[]
-	/** GitHub org the App is created under (default contember). */
+	/** GitHub org the App is created under — the app repos' org (e.g. contember). */
 	githubOrg: string
 	/** Deploy target env name (default prod). */
 	env: string
-	/** Repos to install the GitHub App on (vozka + propustka, by default). */
+	/** The account's base repo to configure + trigger, e.g. `manGoweb/vozka-platform`. */
+	platformRepo: string
+	/** App repos to install the GitHub App on (the apps vozka deploys via webhook). May be empty. */
 	installRepos: string[]
-	/** Repo URLs + the propustka app domain, for the optional seed step. */
-	vozkaRepoUrl: string
-	propustkaRepoUrl: string
-	propustkaAppDomain: string
 }
 
-/** The packages/worker directory — the cwd for the seed.ts shell-out. Resolved from this file at
- *  <repo>/scripts/wizard/ up to the repo root, then into packages/worker. */
-const workerDir = resolve(import.meta.dir, '..', '..', 'packages', 'worker')
-
-/** The repo root — the cwd for `vozka platform deploy` (it chdir's per component, so it runs from the
- *  root with the two config paths below). */
+/** The repo root — a harmless cwd anchor for the `gh` shell-outs (gh ignores cwd when `--repo` is given). */
 const repoRoot = resolve(import.meta.dir, '..', '..')
 
-/** `vozka platform deploy` argv (via the @vozka/core CLI): deploys vozka-runner THEN vozka — one idempotent
- *  bring-up. Replaces the old `scripts/bootstrap.ts` shell-out, which deployed vozka ALONE and predated the
- *  executor split (vozka binds RUNNER_SVC → vozka-runner, so the runner must come up first). */
-const PLATFORM_DEPLOY = [
-	'packages/core/src/cli.ts',
-	'platform',
-	'deploy',
-	'--runner-config=packages/runner/vozka-runner.config.ts',
-	'--worker-config=packages/worker/vozka.config.ts',
+/** Repo Secrets (sensitive) the platform workflow consumes — written via `gh secret set` over STDIN. The
+ *  names mirror `<org>/vozka-platform`'s `.github/workflows/platform.yml`. */
+const REPO_SECRETS = [
+	'CLOUDFLARE_ACCOUNT_ID',
+	'CLOUDFLARE_API_TOKEN',
+	'VOZKA_VAULT_KEY',
+	'GITHUB_APP_PRIVATE_KEY',
+	'GITHUB_WEBHOOK_SECRET',
+	'PROPUSTKA_CLIENT_ID',
+	'PROPUSTKA_CLIENT_SECRET',
 ]
 
-/** Run the shared vozka bring-up. Throws on any hard failure (bad deploy, etc.). */
+/** Repo Variables (non-secret) the platform workflow consumes — written via `gh variable set`. */
+const REPO_VARS = ['VOZKA_DOMAIN', 'GITHUB_APP_ID', 'PROPUSTKA_URL', 'VOZKA_BOOTSTRAP_ADMINS']
+
+/** Run the shared vozka bring-up: vault key + GitHub App, then configure the base repo + trigger CI. */
 export async function runVozkaBringup(collected: BringupInput): Promise<void> {
 	const vaultKey = await generateVaultKey()
 	const { app, reused } = await createGitHubApp(collected)
 	if (reused) {
-		// A reused App was already created AND installed by the run that first persisted it — installs
-		// persist on GitHub across runs — so there is nothing to do here (skip the prompt + the poll).
-		detail(`GitHub App install: already done (reused). If ever needed: ${url(`${app.htmlUrl}/installations/new`)}`)
-	} else {
+		detail(`GitHub App: reused from .env. Install (if needed): ${url(`${app.htmlUrl}/installations/new`)}`)
+	} else if (collected.installRepos.length > 0) {
 		await promptInstall(app, collected.installRepos)
+	} else {
+		detail(`Install the App on the repos vozka will deploy when you onboard them: ${url(`${app.htmlUrl}/installations/new`)}`)
 	}
 
 	const env = assembleEnv(collected, vaultKey, app)
-
-	await bootstrapDryThenReal(env)
-	await healthCheck(collected.vozkaDomain)
-	await seedOrPointToDashboard(collected)
-	closeHatchReminder(collected.vozkaDomain)
+	await configureRepoAndTrigger(collected.platformRepo, env)
+	closeHatchReminder(collected.platformRepo)
 }
 
 /**
@@ -141,10 +135,10 @@ async function createGitHubApp(collected: BringupInput): Promise<{ app: CreatedG
 }
 
 /**
- * Assemble the full env Record the deploy reads (the SAME names vozka.config declares). The secret VALUES
- * (token, vault key, propustka secret, PEM, webhook secret) live in this object and flow straight into the
- * child's env — never logged, never written to disk. `GITHUB_APP_ID` is included because vozka.config reads
- * it from the env (App-JWT `iss`); omitting it ships a vozka that 401s on GitHub installation-token mint.
+ * Assemble the full secret/var set the platform workflow reads (the SAME names vozka.config declares). The
+ * secret VALUES live in this object and flow into `gh` over stdin — never logged, never written to disk.
+ * `GITHUB_APP_ID` is included because vozka.config reads it from the env (App-JWT `iss`); omitting it ships
+ * a vozka that 401s on GitHub installation-token mint.
  */
 function assembleEnv(collected: BringupInput, vaultKey: string, app: CreatedGitHubApp): Record<string, string> {
 	return {
@@ -159,148 +153,99 @@ function assembleEnv(collected: BringupInput, vaultKey: string, app: CreatedGitH
 		GITHUB_APP_PRIVATE_KEY: app.pem,
 		GITHUB_WEBHOOK_SECRET: app.webhookSecret,
 		VOZKA_BOOTSTRAP_ADMINS: JSON.stringify(collected.bootstrapAdmins),
-		VOZKA_ENV: collected.env,
 	}
 }
 
 /**
- * Run the platform bring-up via `vozka platform deploy`: vozka-runner THEN vozka (the runner first — vozka
- * binds RUNNER_SVC → it). ALWAYS `--dry-run` first (plan-only), show its output, get an explicit confirm,
- * THEN the real run with `--build-runner-image` (a first bring-up — the runner container image isn't in this
- * account's registry yet). The dry-run is non-mutating; the real run is gated behind the operator. Both
- * inherit stdio so the engine's per-component, per-step output streams live.
+ * Write the assembled secrets + variables into the account's `<org>/vozka-platform` repo and trigger its
+ * `platform` workflow. Secret values go to `gh secret set` over STDIN (never argv, never logged); the
+ * non-secret variables go to `gh variable set --body`. Then `gh workflow run platform.yml
+ * -f build_runner_image=true` kicks off the REAL deploy in GitHub Actions (vozka-runner + vozka).
  */
-async function bootstrapDryThenReal(env: Record<string, string>): Promise<void> {
-	step('Plan the platform deploy (vozka-runner + vozka, dry-run)')
-	info('Running the engine in plan-only mode — no Cloudflare, no propustka changes.')
-	await run({ command: 'bun', args: [...PLATFORM_DEPLOY, '--dry-run'], cwd: repoRoot, env })
+async function configureRepoAndTrigger(repo: string, env: Record<string, string>): Promise<void> {
+	step(`Configure the platform repo (${repo}) — Secrets + Variables`)
+	await ensureGhRepo(repo)
 
-	step('Deploy the platform for real')
-	info('Brings up vozka-runner (the deploy executor) then vozka. The first run BUILDS + pushes the runner')
-	info('container image into this account — that step needs DOCKER on this machine.')
-	const go = await confirm('The dry-run above is the plan. Deploy vozka-runner + vozka FOR REAL now?', false)
+	for (const name of REPO_SECRETS) {
+		const value = env[name]
+		if (value === undefined || value === '') {
+			warn(`Skipping ${name} — no value (the workflow will fail without it; set it manually).`)
+			continue
+		}
+		await run({ command: 'gh', args: ['secret', 'set', name, '--repo', repo], cwd: repoRoot, stdin: value })
+		ok(`secret ${name} set`)
+	}
+	for (const name of REPO_VARS) {
+		await run({ command: 'gh', args: ['variable', 'set', name, '--repo', repo, '--body', env[name] ?? ''], cwd: repoRoot })
+		ok(`variable ${name} set`)
+	}
+
+	step('Trigger the platform deploy (GitHub Actions)')
+	info('GitHub Actions runs the real deploy — vozka-runner then vozka. The first run builds the runner')
+	info('container image into this account (CI has docker); this laptop deploys nothing.')
+	const go = await confirm(`Run the platform workflow on ${repo} now (build_runner_image=true)?`, true)
 	if (!go) {
-		throw new Error('Aborted before the real deploy (re-run the wizard to retry).')
-	}
-	// --build-runner-image: first bring-up — the image isn't in this account's registry yet (needs docker).
-	await run({ command: 'bun', args: [...PLATFORM_DEPLOY, '--build-runner-image'], cwd: repoRoot, env })
-	ok('vozka-runner + vozka deployed.')
-}
-
-/**
- * Poll `GET https://<domain>/api/health` until it returns ok or ~90s elapse. Access fronts the host,
- * but `/api/health` is the unauthenticated liveness route (see the worker fetch router), so a plain
- * GET should pass once the Worker + custom domain are live. A timeout WARNS (the deploy may still be
- * settling) rather than failing the whole bring-up.
- */
-async function healthCheck(domain: string): Promise<void> {
-	step('Health-check the live control plane')
-	const target = `https://${domain}/api/health`
-	info(`Polling ${url(target)} (up to ~90s)…`)
-	const deadline = Date.now() + 90_000
-	for (;;) {
-		const healthy = await probe(target)
-		if (healthy) {
-			ok('Control plane is healthy.')
-			return
-		}
-		if (Date.now() >= deadline) {
-			warn('Health check did not pass within ~90s — the deploy may still be propagating. Check manually.')
-			return
-		}
-		await Bun.sleep(5000)
-	}
-}
-
-/** One health probe: a 200 is healthy; anything else / network error is not (we keep polling). */
-async function probe(target: string): Promise<boolean> {
-	try {
-		const response = await fetch(target, { method: 'GET' })
-		return response.ok
-	} catch {
-		return false
-	}
-}
-
-/**
- * Seed the app registry (scripts/seed.ts) — but only if the operator supplies an Access service token
- * for the machine-to-machine API call. The seed POSTs to vozka's gated `/api/*`, so without a service
- * token it would hit the Access front door with no identity. If the operator declines, we skip and
- * point them at the dashboard to onboard the apps with a human Access login instead.
- */
-async function seedOrPointToDashboard(collected: BringupInput): Promise<void> {
-	step('Register apps in the control-plane registry (seed)')
-	const withToken = await confirm('Seed the app registry now with an Access SERVICE token?', true)
-	if (!withToken) {
-		action('OPERATOR ACTION — onboard apps via the dashboard', [
-			`1. Open the dashboard: ${url(`https://${collected.vozkaDomain}`)}`,
-			'2. Sign in with Cloudflare Access (human login).',
-			'3. Register the vozka + propustka apps via the UI.',
+		action('OPERATOR ACTION — run it when ready', [
+			`gh workflow run platform.yml --repo ${repo} -f build_runner_image=true`,
+			`or: ${url(`https://github.com/${repo}/actions`)} → platform → Run workflow`,
 		])
 		return
 	}
-	info('Paste an Access service token (CF-Access-Client-Id / -Secret) authorized for the operator host.')
-	const clientId = await secret('CF_ACCESS_CLIENT_ID')
-	const clientSecret = await secret('CF_ACCESS_CLIENT_SECRET')
-	await run({
-		command: 'bun',
-		args: ['run', 'scripts/seed.ts'],
-		cwd: workerDir,
-		env: {
-			VOZKA_API_URL: `https://${collected.vozkaDomain}`,
-			VOZKA_REPO_URL: collected.vozkaRepoUrl,
-			PROPUSTKA_REPO_URL: collected.propustkaRepoUrl,
-			VOZKA_APP_DOMAIN: collected.vozkaDomain,
-			PROPUSTKA_APP_DOMAIN: collected.propustkaAppDomain,
-			SEED_ENV: collected.env,
-			CF_ACCESS_CLIENT_ID: clientId,
-			CF_ACCESS_CLIENT_SECRET: clientSecret,
-		},
-	})
-	ok('App registry seeded — pushes to the registered repos now self-deploy through vozka.')
+	await run({ command: 'gh', args: ['workflow', 'run', 'platform.yml', '--repo', repo, '-f', 'build_runner_image=true'], cwd: repoRoot })
+	ok('Platform workflow triggered.')
+	detail(`Watch: ${url(`https://github.com/${repo}/actions`)}   (or: gh run watch --repo ${repo})`)
+}
+
+/** Verify `gh` is available + authed + can see the target repo; throw a clear error otherwise. */
+async function ensureGhRepo(repo: string): Promise<void> {
+	if (!(await hasGhCli())) {
+		throw new Error('`gh` (GitHub CLI) is required to set repo secrets — install it and run `gh auth login`.')
+	}
+	const proc = Bun.spawn(['gh', 'repo', 'view', repo, '--json', 'nameWithOwner'], { stdout: 'ignore', stderr: 'ignore' })
+	if ((await proc.exited) !== 0) {
+		throw new Error(`Cannot access ${repo} via gh — create the per-account vozka-platform repo first, and ensure your gh login can admin it.`)
+	}
 }
 
 /**
- * Close-the-hatch reminder. The bring-up ran with VOZKA_BOOTSTRAP_ADMINS set (the escape hatch OPEN).
- * Once propustka grants the operator a real admin role, they must re-run bootstrap WITHOUT that var to
- * close the hatch (authorization fully propustka-owned again). We only point them at the script.
+ * Close-the-hatch reminder. The bring-up set VOZKA_BOOTSTRAP_ADMINS (the escape hatch OPEN). Once
+ * propustka grants the operator a real admin role, they clear that repo Variable and re-run the workflow
+ * to close the hatch (authorization fully propustka-owned again).
  */
-function closeHatchReminder(domain: string): void {
+function closeHatchReminder(repo: string): void {
 	step('Final: close the escape hatch')
 	info('vozka came up with the bootstrap-admin escape hatch OPEN (VOZKA_BOOTSTRAP_ADMINS set).')
-	action('OPERATOR ACTION — close the hatch after propustka grants you admin', [
-		`1. In the propustka admin UI, grant yourself the vozka ADMIN role.`,
-		'2. Re-run WITHOUT the bootstrap admins to close the hatch:',
-		'     bun run scripts/bootstrap.ts        (no VOZKA_BOOTSTRAP_ADMINS)',
+	action('OPERATOR ACTION — close the hatch after propustka grants you the vozka admin role', [
+		`1. gh variable set VOZKA_BOOTSTRAP_ADMINS --repo ${repo} --body '[]'`,
+		`2. gh workflow run platform.yml --repo ${repo}`,
 		'3. Authorization is then fully propustka-owned.',
 	])
-	detail(`Dashboard: ${url(`https://${domain}`)}`)
 }
 
 /**
  * Shared collector for the vozka-portion inputs both flows ask for AFTER propustka coords are known:
- * VOZKA_DOMAIN, GitHub org, first-admin email(s), repo URLs. Kept here so migrate + fresh stay in
- * lockstep on what the bring-up needs. (CF creds + propustka coords are passed in by each flow.)
+ * VOZKA_DOMAIN, the App/app-repos org, the per-account platform repo, first-admin email(s), and the app
+ * repos to install the App on. Kept here so migrate + fresh stay in lockstep. (CF creds + propustka coords
+ * are passed in by each flow.)
  */
 export async function collectBringupCommon(defaults: { githubOrg: string }): Promise<{
 	vozkaDomain: string
 	githubOrg: string
+	platformRepo: string
 	bootstrapAdmins: string[]
 	env: string
-	vozkaRepoUrl: string
-	propustkaRepoUrl: string
 	installRepos: string[]
 }> {
 	const vozkaDomain = await text('vozka domain (e.g. vozka.example.com)')
-	const githubOrg = await text('GitHub org', defaults.githubOrg)
+	const githubOrg = await text('GitHub org for the App + app repos', defaults.githubOrg)
+	const platformRepo = await text('Platform repo to configure (org/vozka-platform)', `${githubOrg}/vozka-platform`)
 	const adminsRaw = await text('First-admin email(s) for the escape hatch (comma-separated)')
 	const bootstrapAdmins = adminsRaw.split(',').map((s) => s.trim()).filter(Boolean)
 	const envChoice = await select('Deploy environment', [
 		{ label: 'prod', value: 'prod' },
 		{ label: 'stage', value: 'stage' },
 	])
-	const vozkaRepoUrl = await text('vozka repo URL', `https://github.com/${githubOrg}/vozka`)
-	const propustkaRepoUrl = await text('propustka repo URL', `https://github.com/${githubOrg}/propustka`)
-	const installRepos = [`${githubOrg}/vozka`, `${githubOrg}/propustka`]
-	return { vozkaDomain, githubOrg, bootstrapAdmins, env: envChoice, vozkaRepoUrl, propustkaRepoUrl, installRepos }
+	const reposRaw = await text('App repos to install the GitHub App on (comma-separated, optional)', '')
+	const installRepos = reposRaw.split(',').map((s) => s.trim()).filter(Boolean)
+	return { vozkaDomain, githubOrg, platformRepo, bootstrapAdmins, env: envChoice, installRepos }
 }

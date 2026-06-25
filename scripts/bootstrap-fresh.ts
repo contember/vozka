@@ -116,10 +116,8 @@ async function main(): Promise<void> {
 		bootstrapAdmins: common.bootstrapAdmins,
 		githubOrg: common.githubOrg,
 		env: common.env,
+		platformRepo: common.platformRepo,
 		installRepos: common.installRepos,
-		vozkaRepoUrl: common.vozkaRepoUrl,
-		propustkaRepoUrl: common.propustkaRepoUrl,
-		propustkaAppDomain: hostname,
 	})
 
 	console.log('\nDone. propustka + vozka are both live on a fresh account.\n')

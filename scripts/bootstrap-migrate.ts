@@ -12,7 +12,7 @@
  *   2. take the CLOUDFLARE_API_TOKEN, verify it, resolve the account, check the zone,
  *   3. obtain vozka's propustka provisioning key (paste an existing one, or mint a new one with an
  *      admin Access service token),
- *   4. run the shared vozka bring-up (vault key + GitHub App + bootstrap dry→real + health + seed).
+ *   4. run the shared vozka bring-up (vault key + GitHub App + configure the platform repo + trigger CI).
  *
  * Run it from a laptop with the operator creds in hand — NOTHING is committed or logged. No flags.
  *   bun run scripts/bootstrap-migrate.ts
@@ -38,7 +38,6 @@ async function main(): Promise<void> {
 		}
 		return raw
 	})
-	const propustkaAppDomain = await text('propustka app domain (for the registry)', new URL(propustkaUrl).hostname)
 
 	// 2. The CF token: verify → resolve account → zone check. This ONE token is both the deploy cred
 	//    and vozka's runtime CLOUDFLARE_API_TOKEN secret (single-account).
@@ -84,10 +83,8 @@ async function main(): Promise<void> {
 		bootstrapAdmins: common.bootstrapAdmins,
 		githubOrg: common.githubOrg,
 		env: common.env,
+		platformRepo: common.platformRepo,
 		installRepos: common.installRepos,
-		vozkaRepoUrl: common.vozkaRepoUrl,
-		propustkaRepoUrl: common.propustkaRepoUrl,
-		propustkaAppDomain,
 	})
 
 	console.log('\nDone. vozka is live and migrated alongside propustka.\n')
