@@ -63,9 +63,12 @@ export const buildRunnerWorker = (ctx: ResourceContext): Worker => {
 		},
 		bindings: {
 			// Per-run deploy-runner container. The RunnerContainer DO class lives in src/RunnerContainer.ts
-			// and is re-exported from the worker entry (src/worker.ts) so wrangler can find it.
+			// and is re-exported from the worker entry (src/worker.ts) so wrangler can find it. The CF
+			// container-application name is DISTINCT from the old `vozka-runner` one the control plane used
+			// (CF app names are account-global + tied to a DO namespace): the old `prod-vozka-runner` app
+			// stays bound to vozka until vozka redeploys without its Container, so this one must not clash.
 			RUNNER: new Container({
-				name: 'vozka-runner',
+				name: 'vozka-deploy-runner',
 				className: 'RunnerContainer',
 				image: runnerImage,
 				// `image_build_context` only applies to a Dockerfile build — it lets the Dockerfile COPY sibling
