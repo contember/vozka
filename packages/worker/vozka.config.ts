@@ -77,6 +77,10 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 			// CLI/bootstrap always set them); the running Worker injects them into every RunnerJob.
 			CLOUDFLARE_ACCOUNT_ID: process.env['CLOUDFLARE_ACCOUNT_ID'] ?? '',
 			PROPUSTKA_URL: process.env['PROPUSTKA_URL'] ?? '',
+			// The GitHub App's numeric id (public, not a secret) — it's the `iss` of the App JWT that mints
+			// installation tokens to clone PRIVATE app repos. The PEM key is a `pipeline.secret`; the id is
+			// just config, so it rides as a var. Without it the JWT iss is empty and GitHub answers 401.
+			GITHUB_APP_ID: process.env['GITHUB_APP_ID'] ?? '',
 		},
 		bindings: {
 			// Per-run deploy-runner container. The DO class lives in src/RunnerContainer.ts and is
