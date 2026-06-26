@@ -1,0 +1,2 @@
+# The vozka CLI persists collected secrets/values here for resume — NEVER commit it.
+.env

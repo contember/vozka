@@ -1,0 +1,34 @@
+{
+	"name": "@vozka/cli",
+	"version": "0.0.1",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/contember/vozka.git",
+		"directory": "packages/cli"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"bin": {
+		"vozka": "./src/index.ts"
+	},
+	"files": [
+		"src",
+		"!src/**/__tests__/**"
+	],
+	"exports": {
+		".": {
+			"bun": "./src/index.ts",
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}

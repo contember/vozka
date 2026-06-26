@@ -29,6 +29,7 @@ Per-package dev/build commands live in each package's CLAUDE.md (core, worker, r
 ```
 packages/config/      # vozka-config — the app-authoring surface (defineApp + re-exports). 3 files; covered here.
 packages/core/        # @vozka/core — deploy engine + the `vozka` CLI.        → CLAUDE.md
+packages/cli/         # @vozka/cli — operator bring-up CLI (`vozka init <account>`). → CLAUDE.md
 packages/worker/      # @vozka/worker — the control-plane Worker.             → CLAUDE.md
 packages/runner/      # @vozka/runner — the container deploy runner + the vozka-runner executor worker. → CLAUDE.md
 packages/dashboard/   # @vozka/dashboard — buzola + React SPA.               → CLAUDE.md
