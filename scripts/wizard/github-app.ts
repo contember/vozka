@@ -27,6 +27,9 @@ interface ManifestInput {
 	org: string
 	appName: string
 	vozkaDomain: string
+	/** Public App — required when it will be installed on repos OUTSIDE its owner org (cross-org). GitHub
+	 *  only lets a PRIVATE App install on its owner's own repos. */
+	public: boolean
 }
 
 /**
@@ -159,13 +162,16 @@ async function handleCallback(requestUrl: URL, expectedState: string): Promise<C
 /**
  * The GitHub App manifest. Minimal permissions for vozka's private-repo push deploys: read `contents`
  * (clone) + the `push` event (the webhook trigger). The webhook posts to vozka's own ingest route.
+ * `public` is set when the App is owned by one org but installed on another's repos (GitHub only allows a
+ * PRIVATE App to be installed on its owner's own repos) — e.g. the manGoweb-account App deploying the
+ * poplach/revizor repos that live in the contember org.
  */
 function buildManifest(input: ManifestInput): Record<string, unknown> {
 	return {
 		name: input.appName,
 		url: `https://${input.vozkaDomain}`,
 		hook_attributes: { url: `https://${input.vozkaDomain}/webhooks/github`, active: true },
-		public: false,
+		public: input.public,
 		default_permissions: { contents: 'read' },
 		default_events: ['push'],
 	}

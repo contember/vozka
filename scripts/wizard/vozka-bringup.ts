@@ -37,7 +37,8 @@ export interface BringupInput {
 	propustkaClientSecret: string
 	/** First-operator admin email(s) for VOZKA_BOOTSTRAP_ADMINS (escape hatch). */
 	bootstrapAdmins: string[]
-	/** GitHub org the App is created under — the app repos' org (e.g. contember). */
+	/** GitHub org the App is created under + the platform repo's org (this account's org, e.g. manGoweb).
+	 *  The app repos may live in a DIFFERENT org (see installRepos) — that's a cross-org install. */
 	githubOrg: string
 	/** Deploy target env name (default prod). */
 	env: string
@@ -124,7 +125,12 @@ async function createGitHubApp(collected: BringupInput): Promise<{ app: CreatedG
 		}
 	}
 	const appName = await text('GitHub App name', `vozka-${collected.env}`)
-	const app = await createAppViaManifest({ org: collected.githubOrg, appName, vozkaDomain: collected.vozkaDomain })
+	// A GitHub App must be PUBLIC iff it will be installed across orgs: GitHub only lets a private App
+	// install on its OWNER's repos, so an App owned by this account's org but deploying repos in another
+	// org (e.g. manGoweb-owned, deploying contember/poplach) must be public. Same-org installs stay private.
+	const ownerOrg = collected.githubOrg.toLowerCase()
+	const isPublic = collected.installRepos.some((repo) => (repo.split('/')[0] ?? '').toLowerCase() !== ownerOrg)
+	const app = await createAppViaManifest({ org: collected.githubOrg, appName, vozkaDomain: collected.vozkaDomain, public: isPublic })
 	await persistEnv('GITHUB_APP_PRIVATE_KEY', app.pem)
 	await persistEnv('GITHUB_WEBHOOK_SECRET', app.webhookSecret)
 	await persistEnv('GITHUB_APP_ID', String(app.id))
@@ -224,9 +230,9 @@ function closeHatchReminder(repo: string): void {
 
 /**
  * Shared collector for the vozka-portion inputs both flows ask for AFTER propustka coords are known:
- * VOZKA_DOMAIN, the App/app-repos org, the per-account platform repo, first-admin email(s), and the app
- * repos to install the App on. Kept here so migrate + fresh stay in lockstep. (CF creds + propustka coords
- * are passed in by each flow.)
+ * VOZKA_DOMAIN, the org that owns the App + platform repo, the per-account platform repo, first-admin
+ * email(s), and the app repos to install the App on (which may be in a different org — cross-org install).
+ * Kept here so migrate + fresh stay in lockstep. (CF creds + propustka coords are passed in by each flow.)
  */
 export async function collectBringupCommon(defaults: { githubOrg: string }): Promise<{
 	vozkaDomain: string
@@ -237,7 +243,7 @@ export async function collectBringupCommon(defaults: { githubOrg: string }): Pro
 	installRepos: string[]
 }> {
 	const vozkaDomain = await text('vozka domain (e.g. vozka.example.com)')
-	const githubOrg = await text('GitHub org for the App + app repos', defaults.githubOrg)
+	const githubOrg = await text('GitHub org that owns the vozka App + platform repo (this account org)', defaults.githubOrg)
 	const platformRepo = await text('Platform repo to configure (org/vozka-platform)', `${githubOrg}/vozka-platform`)
 	const adminsRaw = await text('First-admin email(s) for the escape hatch (comma-separated)')
 	const bootstrapAdmins = adminsRaw.split(',').map((s) => s.trim()).filter(Boolean)
