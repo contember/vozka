@@ -46,6 +46,9 @@ export async function runInit(account: string): Promise<void> {
 		dir: defaultCheckoutDir(collected.account),
 	})
 
+	// GitHub RESERVES the `GITHUB_` prefix for secret + variable names in an Environment (the API rejects
+	// them, 422), so the App's key/secret/id ride under a `GH_` prefix here. platform.yml maps each back to
+	// the `GITHUB_*` env var the deploy + Worker bindings expect — that rename is GitHub-side only.
 	await configureEnvironment({
 		repo: collected.platformRepo,
 		environment: collected.account,
@@ -53,13 +56,13 @@ export async function runInit(account: string): Promise<void> {
 			CLOUDFLARE_ACCOUNT_ID: collected.accountId,
 			CLOUDFLARE_API_TOKEN: collected.apiToken,
 			VOZKA_VAULT_KEY: vaultKey,
-			GITHUB_APP_PRIVATE_KEY: app.pem,
-			GITHUB_WEBHOOK_SECRET: app.webhookSecret,
+			GH_APP_PRIVATE_KEY: app.pem,
+			GH_WEBHOOK_SECRET: app.webhookSecret,
 			PROPUSTKA_PROVISIONING_KEY: provisioning,
 		},
 		vars: {
 			VOZKA_DOMAIN: collected.vozkaDomain,
-			GITHUB_APP_ID: String(app.id),
+			GH_APP_ID: String(app.id),
 			PROPUSTKA_URL: collected.propustkaUrl,
 			VOZKA_BOOTSTRAP_ADMINS: JSON.stringify(collected.bootstrapAdmins),
 		},

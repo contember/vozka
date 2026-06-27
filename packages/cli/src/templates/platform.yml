@@ -87,13 +87,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           VOZKA_VAULT_KEY: ${{ secrets.VOZKA_VAULT_KEY }}
-          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          # GitHub reserves the GITHUB_ prefix for Environment secret/variable NAMES, so the App key/secret/id
+          # are stored as GH_* and mapped to the GITHUB_* env vars the deploy + Worker bindings expect here.
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
           # The seeded propustka provisioning key — vozka reconciles its own schema with it (Bearer px_).
           PROPUSTKA_PROVISIONING_KEY: ${{ secrets.PROPUSTKA_PROVISIONING_KEY }}
           # Non-secret config (Environment Variables).
           VOZKA_DOMAIN: ${{ vars.VOZKA_DOMAIN }}
-          GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
+          GITHUB_APP_ID: ${{ vars.GH_APP_ID }}
           PROPUSTKA_URL: ${{ vars.PROPUSTKA_URL }}
           VOZKA_BOOTSTRAP_ADMINS: ${{ vars.VOZKA_BOOTSTRAP_ADMINS }}
         run: |
