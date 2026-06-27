@@ -9,7 +9,7 @@
  * into `.env`, `gh` over stdin, and child env — never through `log.ts`.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { findZone, listZones, resolveAccountId, verifyToken } from './cloudflare'
 import { fromEnv, persistEnv } from './envfile'
 import { configureEnvironment, triggerPlatformWorkflow } from './environment'
@@ -55,8 +55,7 @@ export async function runInit(account: string): Promise<void> {
 			VOZKA_VAULT_KEY: vaultKey,
 			GITHUB_APP_PRIVATE_KEY: app.pem,
 			GITHUB_WEBHOOK_SECRET: app.webhookSecret,
-			PROPUSTKA_CLIENT_ID: provisioning.clientId,
-			PROPUSTKA_CLIENT_SECRET: provisioning.clientSecret,
+			PROPUSTKA_PROVISIONING_KEY: provisioning,
 		},
 		vars: {
 			VOZKA_DOMAIN: collected.vozkaDomain,
@@ -146,31 +145,24 @@ async function ensureVaultKey(): Promise<string> {
 	return key
 }
 
-/** The provisioning key (vozka's propustka credential). */
-interface ProvisioningKey {
-	clientId: string
-	clientSecret: string
-}
-
 /**
- * Generate the operator-side provisioning key (the "seeded key"): random, stored once. Phase B wires
- * propustka Stage 1 to SEED it as an admin credential at deploy and vozka Stage 2 to USE it. Until then it
- * is a placeholder — the account is NOT live yet ("clean, wait for propustka"). An operator who already has
- * a key can pre-set PROPUSTKA_CLIENT_ID/_SECRET in env and it is reused verbatim.
+ * Generate the operator-side provisioning key (the "seeded key"): a single opaque `px_` bearer, stored
+ * once. propustka Stage 1 SEEDS it (the `PROPUSTKA_PROVISIONING_KEY` secret — `resolveCaller` admits a
+ * bearer matching it as a synthetic admin) and vozka Stage 2 USES it to authenticate schema reconciles.
+ * Shaped like a propustka-native key (`px_` + 160 bits base64url). An operator who already has one can
+ * pre-set `PROPUSTKA_PROVISIONING_KEY` in env and it is reused verbatim.
  */
-async function ensureProvisioningKey(): Promise<ProvisioningKey> {
-	step('Provisioning key (PROPUSTKA_CLIENT_ID / _SECRET)')
-	const id = fromEnv('PROPUSTKA_CLIENT_ID')
-	const secret = fromEnv('PROPUSTKA_CLIENT_SECRET')
-	if (id !== undefined && secret !== undefined) {
+async function ensureProvisioningKey(): Promise<string> {
+	step('Provisioning key (PROPUSTKA_PROVISIONING_KEY)')
+	const existing = fromEnv('PROPUSTKA_PROVISIONING_KEY')
+	if (existing !== undefined) {
 		ok('Reusing the provisioning key from .env (resume).')
-		return { clientId: id, clientSecret: secret }
+		return existing
 	}
-	const key = { clientId: randomUUID(), clientSecret: randomBytes(32).toString('base64url') }
-	await persistEnv('PROPUSTKA_CLIENT_ID', key.clientId)
-	await persistEnv('PROPUSTKA_CLIENT_SECRET', key.clientSecret)
+	const key = `px_${randomBytes(20).toString('base64url')}`
+	await persistEnv('PROPUSTKA_PROVISIONING_KEY', key)
 	ok('Provisioning key generated + saved to .env.')
-	detail('Phase B: propustka Stage 1 will SEED this; vozka uses it. Until then the account is not live (by design).')
+	detail('propustka Stage 1 seeds this as an admin credential; vozka Stage 2 reconciles with it.')
 	return key
 }
 

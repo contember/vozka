@@ -54,7 +54,17 @@ export interface ApiDeps {
 export async function handleApi(request: Request, deps: ApiDeps): Promise<Response> {
 	const url = new URL(request.url)
 	try {
-		return await dispatch(request, url, deps)
+		const response = await dispatch(request, url, deps)
+		// Off-local, a successful authenticate may have minted a fresh `px_token`: attach its Set-Cookie
+		// to the response so the next request hits the SDK's local fast path (no re-mint). Attached once,
+		// centrally, so individual handlers stay cookie-unaware.
+		const setCookie = deps.iam.takeSetCookie?.()
+		if (setCookie !== undefined && setCookie !== '') {
+			const withCookie = new Response(response.body, response)
+			withCookie.headers.append('Set-Cookie', setCookie)
+			return withCookie
+		}
+		return response
 	} catch (err) {
 		console.error('api request failed', err instanceof Error ? err.message : 'unknown error')
 		return error(500, 'internal error')

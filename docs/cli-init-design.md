@@ -1,8 +1,12 @@
 # `@vozka/cli init` — per-account base bring-up (design)
 
-Status: **Phase A built** (`@vozka/cli`, `vozka init <account>`); **Phase B pending** the propustka refactor.
-Supersedes the `scripts/bootstrap-*.ts` wizard (kept as legacy until the CLI is proven). Decided 2026-06-26
-with the operator.
+Status (2026-06-27): **Phase A built** + **Phase B landed except Stage 1 wiring**. propustka native-auth is
+published (`@propustka/* 0.0.6`) WITH the seed-from-env primitive (`PROPUSTKA_PROVISIONING_KEY`); vozka is
+co-versioned onto it — `reconcileAccess`/`AppAccess` dropped, `reconcileSchema({ adminKey })`, the worker
+auth migrated to `PropustkaAuth`, the key collapsed to one `px_`, and `@vozka/cli` generates it. The ONE
+remaining Phase B item is **wiring Stage 1 (propustka's own deploy) into `platform.yml`** — deferred to the
+account bring-up (#24) because it needs propustka's OIDC + signing config provisioned into the Environment.
+Supersedes the `scripts/bootstrap-*.ts` wizard (kept as legacy until the CLI is proven). Decided 2026-06-26.
 
 ## Goal
 
@@ -59,22 +63,32 @@ by BOTH stages — no minting, no propustka checkout, no branch-mismatch.
 | **propustka (Stage 1)** | reads it from env and **idempotently upserts** it as an admin/provisioning credential at deploy — the machine analog of `PROPUSTKA_BOOTSTRAP_ADMINS`. _(= the seed-from-env primitive to add in the propustka refactor.)_ |
 | **vozka (Stage 2)**     | reads the **same** key and authenticates its `reconcileSchema`/`reconcileAccess` calls with it                                                                                                                            |
 
-### ⚠️ Key SHAPE is the one open item — depends on the new propustka auth model
+### Key SHAPE — RESOLVED (2026-06-27, against propustka `feat/propustka-native-auth`)
 
-- **Old model:** `PROPUSTKA_CLIENT_ID` + `PROPUSTKA_CLIENT_SECRET` (Access service-token / client-credentials
-  pair). vozka reads both today.
-- **New model (refactor):** credentials are single `px_` bearer keys (`issueKey`/`mintFromKey`). Then the
-  provisioning key is likely **one `px_` token**, not an id/secret pair — e.g. env `PROPUSTKA_PROVISIONING_KEY`.
-  The CLI generates `px_<random>`; propustka Stage 1 upserts a credential whose hash = hash(token) under a
-  stable identity (so re-deploy is a no-op / rotation); vozka presents the token as a bearer.
-- **Co-version implication:** if provisioning auth collapses to a single key, vozka's `@propustka/client`
-  reconcile auth changes from `(client_id, client_secret)` to one key — that's part of the
-  `@propustka/* ^0.0.5 → ^0.0.6` bump (the co-versioned suite). Confirm the exact surface against the new
-  `@propustka/client`.
+- **Single `px_` bearer.** A propustka credential is ONE opaque `px_<random>` token (SHA-256-hashed in the
+  `credentials` table, plaintext returned once by `issueKey`). NOT an id/secret pair. So the provisioning key
+  is one token in **one** env var (proposed `PROPUSTKA_PROVISIONING_KEY`), not `PROPUSTKA_CLIENT_ID`/`_SECRET`.
+- **Reconcile auth = `adminKey` bearer.** `reconcileSchema({ url, app, schema, adminKey })` sends
+  `Authorization: Bearer ${adminKey}` (the `px_`). vozka passes the single provisioning key as `adminKey`.
+- **No `reconcileAccess` / no `AppAccess`.** CF Access is fully removed; the old `reconcileAccess` +
+  `AppAccess`/`AccessAppDecl`/`AccessRule` are DELETED from `@propustka/*`. Per-path gating is now `AppGates`,
+  **pure runtime SDK config consumed by `PropustkaAuth` in each app — NOT reconciled at deploy** and not a
+  vozka concern. So vozka's whole "reconcile access" step + the `access` field on `defineApp` go away.
+- **`IamClient.authenticate(request)` is gone** (caller resolution is now server-side `resolveCaller`); the
+  app-side request-auth surface is `PropustkaAuth`. vozka's control-plane worker auth must migrate to it.
 
-**To finalize the seeded-key env contract + the vozka co-version change, I need:** the new propustka
-provisioning auth shape (single `px_` key vs id/secret), the seed-from-env env name propustka will read, and
-the `@propustka/client` reconcile auth signature in the new version.
+### The ONE missing primitive on the propustka side — seed-from-env
+
+propustka has `IAM_BOOTSTRAP_ADMINS` (admit a human by email at resolution time) but **no machine analog**:
+nothing reads a `px_` from env and admits it as a provisioning admin. Recommended (idiomatic, no DB writes):
+in `worker/src/auth.ts resolveCaller`, alongside the local-dev bypass + the bootstrap-admin email check, add a
+`PROPUSTKA_PROVISIONING_KEY` env — when a presented bearer's hash equals `hashToken(env)`, resolve a synthetic
+global-admin caller (`permissions: [{ action: '*', scope: null, source: 'bootstrap' }]`), no `credentials`
+row. Idempotent by construction (env compare), rotatable (change the env), no chicken-and-egg, no migration.
+
+**Still required from propustka before vozka Phase B can land:** (1) the seed-from-env primitive above;
+(2) bump `@propustka/core` + `@propustka/client` 0.0.5 → 0.0.6 and **publish** (the branch is unmerged,
+unpublished — vozka on `^0.0.5` still resolves the OLD model).
 
 ## Build phases + dependencies
 
@@ -82,9 +96,23 @@ the `@propustka/client` reconcile auth signature in the new version.
   token → account/zones; repo scaffold from templates; GitHub App (manifest flow, public-when-cross-org —
   already wired in `f58b910`); GitHub Environment + secrets/vars; `.env`; trigger. Treats the provisioning
   key as an opaque env value, so it needs nothing from propustka.
-- **Phase B — seeded key + propustka Stage 1 + vozka co-version (after the propustka refactor lands).**
-  Finalize the key shape; wire Stage 1 (propustka deploy + seed) into `platform.yml`; bump vozka's
-  `@propustka/*` pin + adapt reconcile auth; drop any temporary escape.
+- **Phase B — seeded key + propustka Stage 1 + vozka co-version (after propustka publishes 0.0.6).** This is
+  BIGGER than "finalize the key shape" — the native-auth refactor reshapes the whole reconcile + auth surface.
+  All of it is coupled to the `@propustka/* ^0.0.5 → ^0.0.6` bump (it won't typecheck against 0.0.5), so it
+  lands as one change:
+  1. **Drop `reconcileAccess` entirely** (`core/deploy.ts`, `core/runtime.ts`): no successor — gates are
+     runtime SDK config. Remove `ReconcileAccessError`, `AccessReconciler`, the access reconcile call.
+  2. **`reconcileSchema` auth** `{ clientId, clientSecret }` → `{ adminKey }` (one `px_` bearer).
+  3. **Config surface** (`vozka-config`): drop `AppAccess`/`AccessAppDecl`/`AccessRule` import + re-export and
+     the `access` field on `defineApp`; per-app configs (poplach/revizor) drop their `access` block.
+  4. **Worker auth seam** (`worker/iam.ts`): `IamClient.authenticate(request)` is gone → migrate to
+     `PropustkaAuth`; rework `BootstrapAdminAuthContext`/the guard.
+  5. **Key threading**: collapse `PROPUSTKA_CLIENT_ID` + `_SECRET` → one `PROPUSTKA_PROVISIONING_KEY` across
+     `core/cli.ts`, `runner/protocol.ts`, `worker/run-lifecycle.ts`, `worker/env.ts`.
+  6. **@vozka/cli**: generate one `px_` (not `{clientId, clientSecret}`); one Environment secret
+     `PROPUSTKA_PROVISIONING_KEY`; update `init.ts` + `templates/platform.yml` + README.
+  7. **Pin bump** `^0.0.5 → ^0.0.6` in every package.json + `docker/package.json`.
+  8. **Wire Stage 1** propustka deploy into `platform.yml` (propustka already ships a `vozka.config.ts`).
 
 ## Out of scope / later
 

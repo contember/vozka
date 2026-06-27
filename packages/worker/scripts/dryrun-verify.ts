@@ -37,16 +37,14 @@ const ctx: DeployContext = {
 	accountId: 'dummy-acc',
 	apiToken: 'dummy-tok',
 	propustkaUrl: 'https://iam.example.com',
-	clientId: 'cid',
-	clientSecret: 'csec',
+	adminKey: 'px_dummy-admin',
 	// The runtime worker secrets vozka.config declares in pipeline.secrets — dummy values offline.
 	secrets: {
 		VOZKA_VAULT_KEY: 'dummy-vault-key',
 		GITHUB_APP_PRIVATE_KEY: 'dummy-pem',
 		GITHUB_WEBHOOK_SECRET: 'dummy-hmac',
 		CLOUDFLARE_API_TOKEN: 'dummy-tok',
-		PROPUSTKA_CLIENT_ID: 'cid',
-		PROPUSTKA_CLIENT_SECRET: 'csec',
+		PROPUSTKA_PROVISIONING_KEY: 'px_dummy-admin',
 	},
 	cwd: resolve(import.meta.dir, '..'),
 	dryRun: true,

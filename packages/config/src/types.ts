@@ -1,4 +1,4 @@
-import type { AppAccess, AppSchema } from '@propustka/core'
+import type { AppSchema } from '@propustka/core'
 import type { Worker } from 'oblaka-iac'
 
 /**
@@ -27,8 +27,9 @@ export interface AppPipeline {
 	/** Names of the secrets this app requires at deploy time. */
 	secrets?: string[]
 	/**
-	 * Names of the NON-SECRET deploy-time vars this app needs (e.g. propustka's `PROPUSTKA_ACCESS_APPS`,
-	 * `PROPUSTKA_TEAM`). Their values are per-app-env registry config (NOT vault secrets); the engine
+	 * Names of the NON-SECRET deploy-time vars this app needs (e.g. propustka's
+	 * `PROPUSTKA_HUMAN_EMAIL_DOMAINS`, `PROPUSTKA_OIDC_ISSUER`). Their values are per-app-env registry
+	 * config (NOT vault secrets); the engine
 	 * injects each into `process.env` BEFORE materializing `resources()`, so a config reads them the same
 	 * way a legacy `oblaka.ts` did (`process.env['NAME']`). Use for config that is plaintext but
 	 * environment/account-specific — values that don't belong in the committed config. A declared var with
@@ -46,9 +47,7 @@ export interface AppConfig {
 	id: string
 	/** Builds the app's Cloudflare resource graph (an oblaka `Worker`) for a given environment. */
 	resources: (ctx: ResourceContext) => Worker
-	/** The app's Cloudflare Access edge declaration, reconciled into propustka. */
-	access?: AppAccess
-	/** The app's authz vocabulary (scopes/actions/roles), reconciled into propustka. */
+	/** The app's authz vocabulary (scopes/actions/roles), reconciled into propustka at deploy. */
 	schema?: AppSchema
 	/** How the app is built and which secrets it needs at deploy time. */
 	pipeline?: AppPipeline

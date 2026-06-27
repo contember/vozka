@@ -19,7 +19,7 @@
 		"seed": "bun run scripts/seed.ts"
 	},
 	"dependencies": {
-		"@propustka/client": "^0.0.5",
+		"@propustka/client": "^0.0.6",
 		"vozka-config": "workspace:*",
 		"@vozka/core": "workspace:*",
 		"@vozka/runner": "workspace:*"

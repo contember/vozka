@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import type { AppAccess, AppConfig, AppSchema } from 'vozka-config'
+import type { AppConfig, AppSchema } from 'vozka-config'
 import { D1Database, Worker } from 'vozka-config'
 import { deploy } from '../deploy'
 import type { CommandResult, CommandSpec, DeployRuntime, ProvisionInput } from '../runtime'
@@ -12,8 +12,7 @@ import type { DeployContext } from '../types'
 interface Recorded {
 	commands: CommandSpec[]
 	provisions: ProvisionInput[]
-	schemas: Array<{ url: string; app: string; schema: AppSchema; clientId?: string; clientSecret?: string }>
-	accesses: Array<{ url: string; app: string; access: AppAccess; clientId?: string; clientSecret?: string }>
+	schemas: Array<{ url: string; app: string; schema: AppSchema; adminKey?: string }>
 	logs: string[]
 }
 
@@ -39,18 +38,14 @@ const makeRuntime = (
 	reconcileSchema: async (input) => {
 		rec.schemas.push(input)
 	},
-	reconcileAccess: async (input) => {
-		rec.accesses.push(input)
-	},
 	log: (line) => {
 		rec.logs.push(line)
 	},
 })
 
-const fresh = (): Recorded => ({ commands: [], provisions: [], schemas: [], accesses: [], logs: [] })
+const fresh = (): Recorded => ({ commands: [], provisions: [], schemas: [], logs: [] })
 
 const SCHEMA: AppSchema = { scopes: [], actions: [], roles: {} }
-const ACCESS: AppAccess = { apps: [] }
 
 /** Build a config; by default the simplest possible app (just resources). */
 const makeConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
@@ -103,14 +98,14 @@ describe('plan derivation', () => {
 		expect(result.plan.steps.map((s) => s.id)).toEqual(['provision-resources', 'migrate:DB', 'deploy-worker'])
 	})
 
-	test('reconcile-schema/access only with both the declaration AND propustkaUrl', async () => {
-		const config = makeConfig({ schema: SCHEMA, access: ACCESS })
+	test('reconcile-schema only with both the schema declaration AND propustkaUrl', async () => {
+		const config = makeConfig({ schema: SCHEMA })
 
 		const withoutUrl = await deploy(config, makeCtx(), makeRuntime(fresh()))
 		expect(withoutUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker'])
 
 		const withUrl = await deploy(config, makeCtx({ propustkaUrl: 'https://iam.example.com' }), makeRuntime(rec))
-		expect(withUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker', 'reconcile-access', 'reconcile-schema'])
+		expect(withUrl.plan.steps.map((s) => s.kind)).toEqual(['provision-resources', 'deploy-worker', 'reconcile-schema'])
 	})
 
 	test('sync-secrets only when pipeline.secrets is non-empty', async () => {
@@ -124,7 +119,6 @@ describe('plan derivation', () => {
 	test('full config keeps the canonical order', async () => {
 		const config = makeConfig({
 			schema: SCHEMA,
-			access: ACCESS,
 			pipeline: { build: 'bun run build', secrets: ['API_KEY'] },
 			resources: () =>
 				new Worker({
@@ -142,7 +136,6 @@ describe('plan derivation', () => {
 			'provision-resources',
 			'migrate',
 			'deploy-worker',
-			'reconcile-access',
 			'reconcile-schema',
 			'sync-secrets',
 		])
@@ -211,12 +204,11 @@ describe('step execution — collaborators + args', () => {
 		expect(dep?.env).toEqual({ CLOUDFLARE_API_TOKEN: 'tok-1', CLOUDFLARE_ACCOUNT_ID: 'acc-1' })
 	})
 
-	test('reconcile passes propustka url, app id, declarations and creds', async () => {
-		const config = makeConfig({ schema: SCHEMA, access: ACCESS })
-		const ctx = makeCtx({ propustkaUrl: 'https://iam.example.com', clientId: 'cid', clientSecret: 'csec' })
+	test('reconcile passes propustka url, app id, schema and the admin key', async () => {
+		const config = makeConfig({ schema: SCHEMA })
+		const ctx = makeCtx({ propustkaUrl: 'https://iam.example.com', adminKey: 'px_admin' })
 		await deploy(config, ctx, makeRuntime(rec))
-		expect(rec.schemas).toEqual([{ url: 'https://iam.example.com', app: 'demo', schema: SCHEMA, clientId: 'cid', clientSecret: 'csec' }])
-		expect(rec.accesses).toEqual([{ url: 'https://iam.example.com', app: 'demo', access: ACCESS, clientId: 'cid', clientSecret: 'csec' }])
+		expect(rec.schemas).toEqual([{ url: 'https://iam.example.com', app: 'demo', schema: SCHEMA, adminKey: 'px_admin' }])
 	})
 
 	test('sync-secrets pipes each ctx.secrets value into `wrangler secret put <name>`', async () => {
@@ -318,7 +310,6 @@ describe('dry-run', () => {
 	test('runs oblaka in plan-only mode and skips every real mutation', async () => {
 		const config = makeConfig({
 			schema: SCHEMA,
-			access: ACCESS,
 			pipeline: { build: 'bun run build', secrets: ['API_KEY'] },
 			resources: () =>
 				new Worker({
@@ -339,9 +330,8 @@ describe('dry-run', () => {
 		// No build / wrangler / secret commands and no real reconcile.
 		expect(rec.commands).toHaveLength(0)
 		expect(rec.schemas).toHaveLength(0)
-		expect(rec.accesses).toHaveLength(0)
 		// Each skipped mutation logged a `[dry-run]` line.
 		const dryLines = rec.logs.filter((l) => l.includes('[dry-run]'))
-		expect(dryLines.length).toBeGreaterThanOrEqual(5)
+		expect(dryLines.length).toBeGreaterThanOrEqual(4)
 	})
 })

@@ -18,8 +18,7 @@ const DEPLOY = {
 	cloudflareAccountId: 'cf-acct-123',
 	cloudflareApiToken: 'cf-token-xyz',
 	propustkaUrl: 'https://iam.example',
-	propustkaClientId: 'cid',
-	propustkaClientSecret: 'csec',
+	propustkaProvisioningKey: 'px_provision',
 }
 
 /** Seed app (one secret) + env; return the created pending run row. */
@@ -80,8 +79,7 @@ describe('assembleJob', () => {
 		expect(job.credentials.CLOUDFLARE_ACCOUNT_ID).toBe('cf-acct-123')
 		expect(job.credentials.CLOUDFLARE_API_TOKEN).toBe('cf-token-xyz')
 		expect(job.credentials.PROPUSTKA_URL).toBe('https://iam.example')
-		expect(job.credentials.PROPUSTKA_CLIENT_ID).toBe('cid')
-		expect(job.credentials.PROPUSTKA_CLIENT_SECRET).toBe('csec')
+		expect(job.credentials.PROPUSTKA_PROVISIONING_KEY).toBe('px_provision')
 		// The env-specific secret layer wins over the all-env layer for the same name.
 		expect(job.secrets).toEqual({ API_KEY: 'prod-value' })
 	})

@@ -32,12 +32,14 @@ export interface DeployContext {
 	accountId: string
 	/** Cloudflare API token with deploy permissions. */
 	apiToken: string
-	/** Base URL of the propustka IAM service, when reconciling access/schema. */
+	/** Base URL of the propustka IAM service, when reconciling the schema. */
 	propustkaUrl?: string
-	/** OAuth client id for the propustka admin API. */
-	clientId?: string
-	/** OAuth client secret for the propustka admin API. */
-	clientSecret?: string
+	/**
+	 * The propustka admin/provisioning `px_` bearer key used to authenticate the schema reconcile
+	 * (the seeded `PROPUSTKA_PROVISIONING_KEY` propustka admits as a synthetic admin). Sent as
+	 * `Authorization: Bearer`; omit for a propustka local-dev run (the dev bypass resolves an admin).
+	 */
+	adminKey?: string
 	/** Resolved secret values for this deploy, keyed by secret name. */
 	secrets: Record<string, string>
 	/**
@@ -74,7 +76,7 @@ export interface JobSpec {
 	/** Stable id of the step within a plan. */
 	id: string
 	/** Coarse kind of work — drives ordering and how the runner reports progress. */
-	kind: 'build' | 'provision-resources' | 'migrate' | 'deploy-worker' | 'reconcile-schema' | 'reconcile-access' | 'sync-secrets'
+	kind: 'build' | 'provision-resources' | 'migrate' | 'deploy-worker' | 'reconcile-schema' | 'sync-secrets'
 	/** Human-readable description for logs / the dashboard. */
 	description: string
 	/** Ids of steps that must complete before this one runs. */

@@ -43,10 +43,8 @@ export interface DeployConfig {
 	cloudflareApiToken: string
 	/** propustka IAM base URL for the reconcile step, when configured. */
 	propustkaUrl?: string
-	/** propustka admin OAuth client id (vozka's provisioning key), when configured. Never logged. */
-	propustkaClientId?: string
-	/** propustka admin OAuth client secret, when configured. Never logged. */
-	propustkaClientSecret?: string
+	/** propustka admin/provisioning `px_` bearer key (the seeded provisioning key), when configured. Never logged. */
+	propustkaProvisioningKey?: string
 }
 
 /**
@@ -120,8 +118,7 @@ export async function assembleJob(
 			CLOUDFLARE_ACCOUNT_ID: deps.deploy.cloudflareAccountId,
 			CLOUDFLARE_API_TOKEN: deps.deploy.cloudflareApiToken,
 			...(deps.deploy.propustkaUrl !== undefined ? { PROPUSTKA_URL: deps.deploy.propustkaUrl } : {}),
-			...(deps.deploy.propustkaClientId !== undefined ? { PROPUSTKA_CLIENT_ID: deps.deploy.propustkaClientId } : {}),
-			...(deps.deploy.propustkaClientSecret !== undefined ? { PROPUSTKA_CLIENT_SECRET: deps.deploy.propustkaClientSecret } : {}),
+			...(deps.deploy.propustkaProvisioningKey !== undefined ? { PROPUSTKA_PROVISIONING_KEY: deps.deploy.propustkaProvisioningKey } : {}),
 		},
 		...(app.worker_dir !== null ? { workerDir: app.worker_dir } : {}),
 		...(app.config_path !== null ? { configPath: app.config_path } : {}),

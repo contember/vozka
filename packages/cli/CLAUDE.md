@@ -25,8 +25,11 @@ the bring-up surface (it triggers CI, it does not deploy from the laptop).
   reuses external resources (GitHub App, vault key) instead of orphaning them.
 - **App visibility is DERIVED:** public iff any install repo is in a different org than the App's owner org
   (GitHub forbids a private App installing cross-org). Same-org stays private.
-- **The provisioning key is a SEEDED key (Phase B):** the CLI generates it; propustka Stage 1 will SEED it,
-  vozka Stage 2 USES it. No local-propustka mint. Until Phase B lands the account is intentionally not live.
+- **The provisioning key is a SEEDED `px_` key:** the CLI generates one opaque `px_` bearer
+  (`PROPUSTKA_PROVISIONING_KEY`); propustka (≥ 0.0.6) admits a bearer matching it as a synthetic admin
+  (`resolveCaller`), and vozka reconciles its schema with it. No local-propustka mint. Stage 1 (deploying
+  propustka itself from this pipeline) is deferred to the account bring-up — it also needs propustka's OIDC
+  and signing config in the Environment.
 - **`@vozka/core` owns the deploy.** This package never runs `wrangler`/oblaka/the engine — it triggers the
   scaffolded GitHub Actions pipeline, which calls `vozka platform deploy`.
 

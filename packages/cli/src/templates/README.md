@@ -30,9 +30,11 @@ To close the escape hatch once propustka grants you admin: set the `{{ACCOUNT}}`
 - Bump [`vozka.ref`](./vozka.ref) to a new `contember/vozka` commit/tag and push → redeploys the base.
 - Or _Actions → platform → Run workflow_ manually (build_runner_image stays false).
 
-## Stage 1 — propustka (Phase B)
+## Stage 1 — propustka (deferred to the account bring-up)
 
-propustka is the authz root vozka depends on, so it belongs in this repo's pipeline. It's **not wired yet** —
-propustka's deploy is being refactored. Once it lands, Stage 1 deploys propustka here and **seeds** the
-operator-generated provisioning key (`PROPUSTKA_CLIENT_ID`/`_SECRET`) that Stage 2 uses — no minting, no
-local propustka checkout.
+propustka is the authz root vozka depends on, so it belongs in this repo's pipeline. It is native-auth now
+and ships its own `vozka.config.ts`, so Stage 1 can deploy it here and **seed** the operator-generated
+provisioning key — the `PROPUSTKA_PROVISIONING_KEY` secret propustka admits as a synthetic admin (no minting,
+no local propustka checkout) and Stage 2 reconciles with. Wiring it needs propustka's own deploy config in
+this Environment (signing keys, OIDC secret + issuer/client, human email domains). Until then propustka
+deploys via its own repo pipeline; this Environment carries the shared `PROPUSTKA_PROVISIONING_KEY`.

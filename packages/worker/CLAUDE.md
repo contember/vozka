@@ -7,7 +7,7 @@ Drives a deploy from a GitHub push or a manual trigger. Assumes the root CLAUDE.
 ## Commands (this package)
 
 ```bash
-bun run dev                                       # lopata dev on :18291 (DEV=true → FakeIamClient)
+bun run dev                                       # lopata dev on :18291 (DEV=true → dev-persona AuthContext)
 bunx wrangler d1 migrations apply DB --local      # apply migrations to the local D1
 bun run oblaka                                     # regenerate wrangler.jsonc (plan/dry)
 bun run bootstrap                                  # deploy vozka itself (needs real CF creds + env)
@@ -40,9 +40,14 @@ a glob trigger_ref falls back to the default branch for a no-ref manual deploy.
 
 - **ACL on every `/api/*` route.** Each handler calls `authorize(iam, request, ACTION, scope?)` before
   doing anything; actions/scopes live in `src/actions.ts`. The GitHub webhook (`src/webhook.ts`) is the
-  ONLY unauthenticated route — HMAC-gated instead. Authn = Cloudflare Access; authz + audit = propustka.
-- **Local vs off-local IAM by the `DEV` var:** `DEV='true'` → `FakeIamClient` (dev personas); `DEV=''` →
-  real `IamClient` over the `IAM` binding. `VOZKA_BOOTSTRAP_ADMINS` is the first-operator escape hatch — fails CLOSED on a malformed value.
+  ONLY unauthenticated route — HMAC-gated instead. propustka is the WHOLE front door now (native auth, no
+  Cloudflare Access): `src/iam.ts` authenticates `/api/*` via `PropustkaAuth` over the `IAM` binding —
+  a human via SSO (`px_session` → minted `px_token`) or a machine via an `Authorization: Bearer px_` key
+  (gates: `VOZKA_GATES` = service + human) — then `can(action, scope?)` + audit.
+- **Local vs off-local auth by the `DEV` var:** `DEV='true'` → a vozka-synthesized AuthContext from a
+  fixed dev persona (no propustka, selected by the `X-Dev-Principal` header / cookie); `DEV=''` →
+  `PropustkaAuth` over the `IAM` binding (needs `PROPUSTKA_URL` as the issuer). `VOZKA_BOOTSTRAP_ADMINS`
+  is the first-operator escape hatch — fails CLOSED on a malformed value.
 - **Vault (`src/vault.ts`): envelope AES-256-GCM**, KEK from `VOZKA_VAULT_KEY` (never in D1, never logged).
   Secret VALUES are write-only over the API; D1 stores only ciphertext + wrapped DEK. Losing the KEK is unrecoverable by design.
 - **Secrets resolve by ref scheme** (`src/secret-resolver.ts`): `vault:` / `secretstore:` / `env:` / `literal:`.
@@ -50,9 +55,9 @@ a glob trigger_ref falls back to the default branch for a no-ref manual deploy.
   per-app `pipeline.secrets`; platform creds are vozka's own Worker config (below).
 - **Single-account + build-time deploy config.** vozka deploys into ONE Cloudflare account (its own).
   The CF account/token (`CLOUDFLARE_ACCOUNT_ID` var + `CLOUDFLARE_API_TOKEN` secret) and propustka coords
-  (`PROPUSTKA_URL` var + `PROPUSTKA_CLIENT_ID`/`_SECRET` secrets) live in `src/env.ts`, are declared in
-  `vozka.config.ts`, and are injected into EVERY deploy job by `run-lifecycle.assembleJob`. There is NO
-  `accounts` registry table; WHETHER a deploy reconciles is decided by the app's config (`access`/`schema`).
+  (`PROPUSTKA_URL` var + the seeded `PROPUSTKA_PROVISIONING_KEY` secret) live in `src/env.ts`, are declared
+  in `vozka.config.ts`, and are injected into EVERY deploy job by `run-lifecycle.assembleJob`. There is NO
+  `accounts` registry table; WHETHER a deploy reconciles is decided by the app's `schema` presence.
 - **Run lifecycle is status-guarded + idempotent** (`src/run-lifecycle.ts`): `markRunStarted` only moves
   pending→running, so a redelivered queue message is a no-op. ack handled runs; retry only on an unexpected throw.
 - **The deploy EXECUTOR is a separate worker (`@vozka/runner` / `vozka-runner`), reached via `RUNNER_SVC`.**

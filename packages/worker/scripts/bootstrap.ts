@@ -23,7 +23,7 @@
  *      (reads propustka's committed `packages/worker/propustka.access.ts`; see that script's header
  *      for CF_API_TOKEN / CF_ACCOUNT_ID / PROPUSTKA_HOSTNAME / PROPUSTKA_HUMAN_EMAIL_DOMAINS). Then
  *      mint a provisioning key for vozka (propustka `scripts/provision-key.ts`) and paste the
- *      resulting client id/secret into this script's PROPUSTKA_CLIENT_ID / PROPUSTKA_CLIENT_SECRET.
+ *      resulting `px_` key into this script's PROPUSTKA_PROVISIONING_KEY.
  *
  *   2. vozka SECOND — THIS script. Deploys vozka via the engine with VOZKA_BOOTSTRAP_ADMINS set to the
  *      first operator's email(s). After it lands, that operator can sign in through Access and use the
@@ -47,8 +47,8 @@
  *   CLOUDFLARE_API_TOKEN                           — the account-wide CF token. Authenticates THIS deploy
  *                                                    AND becomes vozka's runtime secret (it deploys every
  *                                                    other app with the same token — single-account).
- *   PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET — the one propustka's base URL + vozka's
- *                                                    provisioning key. Become vozka's runtime config so it
+ *   PROPUSTKA_URL, PROPUSTKA_PROVISIONING_KEY — the one propustka's base URL + vozka's seeded provisioning
+ *                                                    `px_` key. Become vozka's runtime config so it
  *                                                    reconciles every app it deploys; also reconcile vozka.
  *   VOZKA_DOMAIN                                   — vozka's hostname (drives Access destinations + vars).
  *   VOZKA_VAULT_KEY                                — the M4 vault master key (32 raw bytes, base64).
@@ -110,8 +110,7 @@ async function main(): Promise<void> {
 		GITHUB_APP_PRIVATE_KEY: required('GITHUB_APP_PRIVATE_KEY'),
 		GITHUB_WEBHOOK_SECRET: required('GITHUB_WEBHOOK_SECRET'),
 		CLOUDFLARE_API_TOKEN: required('CLOUDFLARE_API_TOKEN'),
-		PROPUSTKA_CLIENT_ID: required('PROPUSTKA_CLIENT_ID'),
-		PROPUSTKA_CLIENT_SECRET: required('PROPUSTKA_CLIENT_SECRET'),
+		PROPUSTKA_PROVISIONING_KEY: required('PROPUSTKA_PROVISIONING_KEY'),
 	}
 
 	const ctx: DeployContext = {
@@ -120,8 +119,7 @@ async function main(): Promise<void> {
 		accountId: required('CLOUDFLARE_ACCOUNT_ID'),
 		apiToken: secrets.CLOUDFLARE_API_TOKEN,
 		propustkaUrl: required('PROPUSTKA_URL'),
-		clientId: secrets.PROPUSTKA_CLIENT_ID,
-		clientSecret: secrets.PROPUSTKA_CLIENT_SECRET,
+		adminKey: secrets.PROPUSTKA_PROVISIONING_KEY,
 		secrets,
 		// vozka.config + its workerDir resolve against packages/worker (this script's parent dir).
 		cwd: resolve(import.meta.dir, '..'),

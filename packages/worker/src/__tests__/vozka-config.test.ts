@@ -78,32 +78,8 @@ describe('defineApp(vozka config)', () => {
 	})
 })
 
-describe('Access carve-out (public ONLY for the GitHub webhook)', () => {
-	test('exactly two CF apps: the gated operator host + the public webhook carve-out', () => {
-		expect(config.access).toBeDefined()
-		const apps = config.access?.apps ?? []
-		expect(apps.length).toBe(2)
-	})
-
-	test('the operator host is gated (service-auth + human), NOT public', () => {
-		const operator = config.access?.apps.find((a) => a.key === 'operator')
-		expect(operator).toBeDefined()
-		const kinds = operator?.rules.map((r) => r.kind) ?? []
-		expect(kinds).toEqual(['service-auth', 'human'])
-		expect(kinds).not.toContain('public')
-		expect(operator?.destinations).toEqual(['vozka.test.example.com'])
-	})
-
-	test('the ONLY public app is the webhook, scoped to POST /webhooks/github exactly', () => {
-		const publicApps = config.access?.apps.filter((a) => a.rules.some((r) => r.kind === 'public')) ?? []
-		expect(publicApps.length).toBe(1)
-		const webhook = publicApps[0]
-		expect(webhook?.key).toBe('webhook')
-		expect(webhook?.rules).toEqual([{ kind: 'public' }])
-		// The bypass covers the webhook path and NOTHING else (not the bare host, not /api).
-		expect(webhook?.destinations).toEqual(['vozka.test.example.com/webhooks/github'])
-	})
-})
+// propustka is fully native — vozka has no Cloudflare Access edge to declare. Its `/api/*` is gated
+// in-process by PropustkaAuth (src/iam.ts `VOZKA_GATES`: service + human), not via `config.access`.
 
 describe('Schema actions/scopes match src/actions.ts (no drift)', () => {
 	test('the schema action catalog is exactly the ACTIONS constants', () => {
@@ -149,8 +125,7 @@ describe('Pipeline', () => {
 			'GITHUB_APP_PRIVATE_KEY',
 			'GITHUB_WEBHOOK_SECRET',
 			'CLOUDFLARE_API_TOKEN',
-			'PROPUSTKA_CLIENT_ID',
-			'PROPUSTKA_CLIENT_SECRET',
+			'PROPUSTKA_PROVISIONING_KEY',
 		])
 	})
 })

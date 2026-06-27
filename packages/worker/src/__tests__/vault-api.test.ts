@@ -1,7 +1,7 @@
-import { FakeIamClient } from '@propustka/client'
 import { describe, expect, test } from 'bun:test'
 import type { ApiDeps } from '../api/router'
 import { handleApi } from '../api/router'
+import { type Authenticator, fakeAuthenticator } from '../iam'
 import type { DeployJobMessage } from '../run-lifecycle'
 import { parseVaultRef, Vault } from '../vault'
 import { createHarness } from './helpers/harness'
@@ -19,7 +19,7 @@ function testKey(): string {
 }
 
 /** Router deps over a real sqlite D1, a recording queue, and a vault factory bound to the SAME db. */
-function makeDeps(iam: FakeIamClient): { deps: ApiDeps; vault: Promise<Vault>; queue: DeployJobMessage[] } {
+function makeDeps(iam: Authenticator): { deps: ApiDeps; vault: Promise<Vault>; queue: DeployJobMessage[] } {
 	const { db, d1 } = createHarness()
 	const queue: DeployJobMessage[] = []
 	const vault = Vault.create(d1, testKey())
@@ -46,8 +46,8 @@ function req(method: string, path: string, body?: unknown): Request {
 }
 
 /** A persona granting exactly `secret.manage` + `app.manage` globally (covers the app-secret values). */
-function secretManager(): FakeIamClient {
-	return new FakeIamClient({
+function secretManager(): Authenticator {
+	return fakeAuthenticator({
 		personas: {
 			'sm@vozka.test': {
 				id: 'p-sm',
@@ -59,7 +59,17 @@ function secretManager(): FakeIamClient {
 				],
 			},
 		},
-		defaultPersona: 'sm@vozka.test',
+		defaultEmail: 'sm@vozka.test',
+	})
+}
+
+/** A persona that holds neither `secret.manage` nor `app.manage` (only `deploy.read`) → denied. */
+function noSecretManager(): Authenticator {
+	return fakeAuthenticator({
+		personas: {
+			'ro@vozka.test': { id: 'p-ro', label: 'ro@vozka.test', type: 'user', permissions: [{ action: 'deploy.read', scope: null, source: 'grant' }] },
+		},
+		defaultEmail: 'ro@vozka.test',
 	})
 }
 
@@ -107,7 +117,7 @@ describe('app secret value endpoints (secret.manage, app-scoped)', () => {
 	})
 
 	test('a caller denied secret.manage gets 403 (app secret value)', async () => {
-		const { deps } = makeDeps(new FakeIamClient({ deny: ['secret.manage'] }))
+		const { deps } = makeDeps(noSecretManager())
 		await seedApp(deps)
 		const response = await handleApi(req('PUT', '/api/apps/app/secrets/API_KEY/value', { value: 'x' }), deps)
 		expect(response.status).toBe(403)

@@ -50,7 +50,8 @@ export interface Env {
 	/**
 	 * propustka IAM base URL injected into every deploy so an app reconciles its schema/access into
 	 * propustka. Platform-wide (one propustka per account); WHETHER a deploy reconciles is decided by
-	 * the app's own config (`access`/`schema` presence), not the registry.
+	 * the app's own config (`schema` presence), not the registry. Also the `PropustkaAuth` issuer the
+	 * control plane authenticates its own `/api/*` callers against (src/iam.ts).
 	 */
 	PROPUSTKA_URL?: string
 	/**
@@ -73,10 +74,11 @@ export interface Env {
 	 * `CLOUDFLARE_API_TOKEN`. Single-account: one token for the whole control plane. NEVER logged.
 	 */
 	CLOUDFLARE_API_TOKEN?: string
-	/** propustka admin OAuth client id (vozka's provisioning key) — injected for the reconcile step. NEVER logged. */
-	PROPUSTKA_CLIENT_ID?: string
-	/** propustka admin OAuth client secret (vozka's provisioning key). NEVER logged. */
-	PROPUSTKA_CLIENT_SECRET?: string
+	/**
+	 * The seeded propustka provisioning `px_` bearer key — injected into every deploy job for the schema
+	 * reconcile step (propustka admits it as a synthetic admin). NEVER logged.
+	 */
+	PROPUSTKA_PROVISIONING_KEY?: string
 	/**
 	 * The vault MASTER key (KEK) for the encrypted D1 secret vault — 32 raw bytes, base64. Seals every
 	 * per-value data key (src/vault.ts). Provisioned out-of-band, once per environment:

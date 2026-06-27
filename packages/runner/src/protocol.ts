@@ -39,8 +39,7 @@ export interface RunnerJob {
 		CLOUDFLARE_ACCOUNT_ID: string
 		CLOUDFLARE_API_TOKEN: string
 		PROPUSTKA_URL?: string
-		PROPUSTKA_CLIENT_ID?: string
-		PROPUSTKA_CLIENT_SECRET?: string
+		PROPUSTKA_PROVISIONING_KEY?: string
 	}
 	/**
 	 * Secret values the deploy must `wrangler secret put`, keyed by the name the app declares in
@@ -50,7 +49,7 @@ export interface RunnerJob {
 	secrets?: Record<SecretName, string>
 	/**
 	 * NON-secret deploy-time config vars, keyed by the name the app declares in `pipeline.vars` (e.g.
-	 * propustka's PROPUSTKA_ACCESS_APPS / TEAM). Like secrets, the container forwards them into the child
+	 * propustka's PROPUSTKA_HUMAN_EMAIL_DOMAINS / PROPUSTKA_OIDC_ISSUER). Like secrets, the container forwards them into the child
 	 * env so the config reads them via `process.env['NAME']`; UNLIKE secrets they are plaintext config
 	 * (not vault-backed, not `wrangler secret put`) and are NOT redacted from logs.
 	 */

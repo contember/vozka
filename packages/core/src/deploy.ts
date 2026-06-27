@@ -1,4 +1,3 @@
-import { ReconcileAccessError, ReconcileSchemaError } from '@propustka/client'
 import { resolve } from 'node:path'
 import type { Worker } from 'oblaka-iac'
 import type { AppConfig } from 'vozka-config'
@@ -120,47 +119,9 @@ const runStep = async (spec: JobSpec, env: StepEnv): Promise<void> => {
 				runtime.log(`  [dry-run] would reconcile schema for \`${config.id}\` against ${propustkaUrl}`)
 				return
 			}
-			try {
-				await runtime.reconcileSchema({ url: propustkaUrl, app: config.id, schema, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
-			} catch (error) {
-				// A NEW app whose propustka doesn't yet list it in ACCESS_APPS returns 404 "unknown app" — a
-				// first-bring-up condition, NOT a deploy failure: propustka only serves apps in its ACCESS_APPS
-				// config (reconcile-access has the same 404 tolerance). Skip with a warning; the schema
-				// reconciles on a later deploy, once the app is a known ACCESS_APPS value in propustka.
-				if (error instanceof ReconcileSchemaError && error.status === 404) {
-					runtime.log(
-						`  ⚠ propustka does not yet know app \`${config.id}\` (404) — schema reconcile skipped. Add it to propustka's ACCESS_APPS + redeploy propustka, then redeploy this app to reconcile.`,
-					)
-					return
-				}
-				throw error
-			}
-			return
-		}
-
-		case 'reconcile-access': {
-			const access = config.access
-			const propustkaUrl = ctx.propustkaUrl
-			if (access === undefined || propustkaUrl === undefined) {
-				return
-			}
-			if (dryRun) {
-				runtime.log(`  [dry-run] would reconcile Access rules for \`${config.id}\` against ${propustkaUrl}`)
-				return
-			}
-			try {
-				await runtime.reconcileAccess({ url: propustkaUrl, app: config.id, access, clientId: ctx.clientId, clientSecret: ctx.clientSecret })
-			} catch (error) {
-				// Same first-bring-up tolerance as reconcile-schema: a 404 "unknown app" means propustka is
-				// not configured for this app yet — skip with a warning, not a deploy failure.
-				if (error instanceof ReconcileAccessError && error.status === 404) {
-					runtime.log(
-						`  ⚠ propustka does not yet know app \`${config.id}\` (404) — access reconcile skipped. Add it to propustka's ACCESS_APPS + redeploy propustka, then redeploy this app to reconcile.`,
-					)
-					return
-				}
-				throw error
-			}
+			// propustka is fully native: `PUT /admin/apps/:app/schema` SELF-REGISTERS a new app (no
+			// ACCESS_APPS gate, so no 404 "unknown app"). Any error is a real failure and propagates.
+			await runtime.reconcileSchema({ url: propustkaUrl, app: config.id, schema, adminKey: ctx.adminKey })
 			return
 		}
 

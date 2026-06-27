@@ -14,12 +14,11 @@ executes it. Assumes the root CLAUDE.md.
 ## Invariants
 
 - **Step order is fixed and meaningful:** build → provision-resources → migrate → deploy-worker →
-  reconcile-access → reconcile-schema → sync-secrets. Steps that don't apply are ABSENT, not skipped.
-  **Access precedes schema** so that, where propustka already knows the app, its CF Access app exists
-  before the schema is pushed. **Both reconciles tolerate a 404 "unknown app"** as a NON-FATAL
-  skip-with-warning: propustka only serves apps listed in its `ACCESS_APPS` config, so a brand-new app's
-  first deploy can't reconcile until it's added there + propustka is redeployed — the app still deploys
-  (worker + secrets) and reconciles on a later deploy. Any non-404 reconcile error is still fatal.
+  reconcile-schema → sync-secrets. Steps that don't apply are ABSENT, not skipped. propustka is fully
+  native (no Cloudflare Access), so there is NO `reconcile-access` step and no `AppAccess` — per-path
+  gates are runtime SDK config in each app. A first `reconcile-schema` SELF-REGISTERS the app in
+  propustka (`PUT /admin/apps/:app/schema`, no `ACCESS_APPS` gate, so no 404 "unknown app"); it
+  authenticates with `ctx.adminKey` (the seeded `px_` provisioning bearer). Any reconcile error is fatal.
 - **The orchestrator never spawns a process / calls oblaka / hits propustka directly** — only via
   `DeployRuntime`. That seam is what makes dry-run and unit tests possible. Add new side effects to the interface, not inline.
 - **`dryRun` MUST skip every real mutation** (`wrangler deploy` / `d1 migrations apply` / `secret put`,

@@ -3,7 +3,7 @@
 // real Cloudflare or propustka. NOT a published artifact; it lives under fixtures/ on purpose.
 
 import { D1Database, defineApp, KVNamespace, Worker } from 'vozka-config'
-import type { AppAccess, AppSchema } from 'vozka-config'
+import type { AppSchema } from 'vozka-config'
 
 // The app's authz vocabulary — reconciled into propustka (only when PROPUSTKA_URL is set).
 const schema: AppSchema = {
@@ -16,18 +16,6 @@ const schema: AppSchema = {
 		viewer: { name: 'Viewer', permissions: ['note.read'] },
 		editor: { name: 'Editor', permissions: ['note.read', 'note.write'] },
 	},
-}
-
-// The app's Cloudflare Access edge rules — reconciled into propustka (only when PROPUSTKA_URL is set).
-const access: AppAccess = {
-	apps: [
-		{
-			key: 'web',
-			name: 'sample-web',
-			destinations: ['sample.example.com'],
-			rules: [{ kind: 'service-auth' }, { kind: 'human', emailDomains: ['contember.com'] }],
-		},
-	],
 }
 
 export default defineApp({
@@ -47,7 +35,6 @@ export default defineApp({
 			},
 		}),
 	schema,
-	access,
 	pipeline: {
 		workerDir: 'worker',
 		build: 'echo "build sample"',

@@ -1,7 +1,7 @@
-import { FakeIamClient, type FakePersona } from '@propustka/client'
+import type { FakePersona } from '@propustka/client'
 import { describe, expect, test } from 'bun:test'
 import { ACTIONS } from '../actions'
-import { authorize, createIam, parseBootstrapAdmins, withBootstrapAdmins } from '../iam'
+import { type Authenticator, authorize, createIam, fakeAuthenticator, parseBootstrapAdmins, withBootstrapAdmins } from '../iam'
 
 // The VOZKA_BOOTSTRAP_ADMINS fallback (src/iam.ts): a caller whose VERIFIED email is in the list is
 // authorized as admin even when the underlying IAM client would DENY — the escape hatch for the first
@@ -13,15 +13,15 @@ function reqAs(email: string): Request {
 	return new Request('https://vozka.example/api/accounts', { method: 'POST', headers: { 'X-Dev-Principal': email } })
 }
 
-// A FakeIamClient in PERSONA mode where every listed persona holds ONLY deploy.read globally — so the
-// underlying client DENIES account.manage. Any authorization that succeeds for account.manage can only
-// come from the bootstrap-admin override.
-function lowPrivClient(emails: string[]): FakeIamClient {
+// A dev-fake authenticator where every listed persona holds ONLY deploy.read globally — so the
+// underlying decision DENIES app.manage. Any authorization that succeeds for app.manage can only come
+// from the bootstrap-admin override.
+function lowPrivClient(emails: string[]): Authenticator {
 	const personas: Record<string, FakePersona> = {}
 	for (const email of emails) {
 		personas[email] = { id: `p-${email}`, label: email, type: 'user', permissions: [{ action: 'deploy.read', scope: null, source: 'grant' }] }
 	}
-	return new FakeIamClient({ personas, defaultPersona: emails[0] })
+	return fakeAuthenticator({ personas, defaultEmail: emails[0] ?? '' })
 }
 
 describe('parseBootstrapAdmins', () => {
@@ -72,7 +72,7 @@ describe('withBootstrapAdmins fallback', () => {
 	test('an unauthenticated caller is NOT rescued — the underlying failure passes through (403)', async () => {
 		// Unknown persona (no default) → the fake returns unknown_principal (403); the bootstrap list
 		// can't rescue it because there is no verified email to match.
-		const base = new FakeIamClient({ personas: {}, defaultPersona: 'ghost@vozka.test' })
+		const base = fakeAuthenticator({ personas: {}, defaultEmail: 'ghost@vozka.test' })
 		const iam = withBootstrapAdmins(base, new Set(['ghost@vozka.test']))
 		const result = await authorize(iam, reqAs('ghost@vozka.test'), ACTIONS.APP_MANAGE)
 		expect(result.ok).toBe(false)
@@ -85,7 +85,7 @@ describe('withBootstrapAdmins fallback', () => {
 		// A persona of type 'service' whose label happens to collide with a listed email must NOT be
 		// rescued — only USER principals carry a verified email.
 		const iam = withBootstrapAdmins(
-			new FakeIamClient({
+			fakeAuthenticator({
 				personas: {
 					'svc@vozka.test': {
 						id: 'p-svc',
@@ -94,7 +94,7 @@ describe('withBootstrapAdmins fallback', () => {
 						permissions: [{ action: 'deploy.read', scope: null, source: 'grant' }],
 					},
 				},
-				defaultPersona: 'svc@vozka.test',
+				defaultEmail: 'svc@vozka.test',
 			}),
 			new Set(['svc@vozka.test']),
 		)

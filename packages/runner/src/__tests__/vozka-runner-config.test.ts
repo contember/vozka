@@ -62,8 +62,7 @@ describe('defineApp(vozka-runner config)', () => {
 		}
 	})
 
-	test('it is INFRA: no Access, no schema, no runtime secrets', () => {
-		expect(config.access).toBeUndefined()
+	test('it is INFRA: no schema, no runtime secrets', () => {
 		expect(config.schema).toBeUndefined()
 		expect(config.pipeline?.secrets).toBeUndefined()
 		expect(config.pipeline?.workerDir).toBe('.')

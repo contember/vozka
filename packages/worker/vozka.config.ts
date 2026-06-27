@@ -1,7 +1,8 @@
 // vozka's OWN deploy surface — DOGFOODING `vozka-config`. vozka is just another app the control
 // plane deploys: this single file is the source of truth for vozka's Cloudflare resource graph, its
-// Cloudflare Access front door, its authz vocabulary, and its deploy pipeline. The `vozka deploy`
-// path (packages/core CLI / scripts/bootstrap.ts) loads THIS to self-deploy.
+// authz vocabulary, and its deploy pipeline. vozka gates its own `/api/*` in-process via PropustkaAuth
+// (src/iam.ts) — propustka is fully native now, there is no Cloudflare Access front door to reconcile.
+// The `vozka deploy` path (packages/core CLI / scripts/bootstrap.ts) loads THIS to self-deploy.
 //
 // Local dev still uses oblaka directly: `oblaka.ts` is a thin shim that imports `buildVozkaWorker`
 // from here and feeds it to oblaka's `define`, so `bunx oblaka oblaka.ts` (wrangler.jsonc generation)
@@ -11,7 +12,7 @@
 // Secrets are never inlined: the GitHub App key/webhook secret + the M4 vault key are declared by
 // NAME in `pipeline.secrets` and provisioned out-of-band (`wrangler secret put` / `.dev.vars`).
 
-import type { AppAccess, AppSchema, ResourceContext } from 'vozka-config'
+import type { AppSchema, ResourceContext } from 'vozka-config'
 import { D1Database, defineApp, DurableObject, Queue, R2Bucket, ServiceReference, Worker } from 'vozka-config'
 import { ACTIONS, SCOPES, VOZKA_APP_ID } from './src/actions'
 
@@ -36,7 +37,7 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 		compatibility_date: '2025-05-25',
 		// Bind the public hostname (`ctx.domain` ← VOZKA_DOMAIN) as a Custom Domain — auto-creates the DNS
 		// record + cert + route. Declared HERE as IaC so `wrangler deploy` keeps it (a domain attached only
-		// in the dashboard gets wiped by the next deploy); propustka's reconciled Access app fronts it. No
+		// in the dashboard gets wiped by the next deploy); PropustkaAuth gates `/api/*` in-process. No
 		// domain (local-dev oblaka shim) → no route → *.workers.dev.
 		routes: domain !== undefined && domain !== '' ? [{ pattern: domain, custom_domain: true }] : [],
 		observability: { enabled: true },
@@ -53,8 +54,8 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 			ENVIRONMENT: env,
 			// The public domain this stage serves on (drives absolute URLs); empty when unknown.
 			VOZKA_DOMAIN: domain ?? '',
-			// Selects the IAM client in src/iam.ts: 'true' (local) → FakeIamClient (no Access, no IAM
-			// Worker); '' (off-local) → real IamClient over the IAM binding.
+			// Selects the auth path in src/iam.ts: 'true' (local) → a synthesized dev-persona AuthContext
+			// (no propustka, no IAM Worker); '' (off-local) → PropustkaAuth over the IAM binding.
 			DEV: isLocal ? 'true' : '',
 			// Bootstrap-admin fallback (src/iam.ts): a JSON array of emails authorized as admin even
 			// when propustka denies / the IAM binding isn't wired yet. Empty by default; the bootstrap
@@ -106,49 +107,6 @@ export const buildVozkaWorker = (ctx: ResourceContext): Worker => {
 }
 
 /**
- * vozka's Cloudflare Access front door, reconciled into propustka. Mirrors poplach's two-app shape:
- * one gated operator host (machines via service tokens + humans), plus a PUBLIC bypass carve-out for
- * the ONE unauthenticated route — `POST /webhooks/github` — which is HMAC-gated in the Worker, not
- * Access-gated. WHO the humans are is propustka's central HUMAN_EMAIL_DOMAINS/HUMAN_EMAILS (not here).
- *
- * `destinations` are the production hostname, from `VOZKA_DOMAIN`. reconcile only USES them when
- * CREATING a missing CF app; for an existing app it preserves the destinations and changes only the
- * policies — so re-running never re-routes a live app.
- *
- * Why NOT throw at import when VOZKA_DOMAIN is unset (unlike propustka/poplach's access files): this
- * config is imported by BOTH the deploy path (CLI / scripts/bootstrap.ts — which always set
- * VOZKA_DOMAIN) AND the local-dev `oblaka.ts` shim (which has no domain and never reconciles access).
- * A throw would break `bunx oblaka oblaka.ts`. Instead the deploy paths require VOZKA_DOMAIN at the
- * boundary (the CLI/bootstrap fail loudly without it), and the `reconcile-access` step only runs when
- * `propustkaUrl` is set — so the placeholder host below is never reconciled anywhere real.
- */
-const buildAccess = (): AppAccess => {
-	// `VOZKA_DOMAIN.invalid` is an unreconcilable placeholder for the no-domain import paths (local-dev
-	// oblaka); the real reconcile (CLI/bootstrap) always has the genuine host in process.env.
-	const host = process.env['VOZKA_DOMAIN'] ?? 'unset.vozka.invalid'
-	return {
-		apps: [
-			{
-				// The gated control plane: operators in a browser (humans) + machines (service tokens).
-				key: 'operator',
-				name: VOZKA_APP_ID,
-				destinations: [host],
-				sessionDuration: '24h',
-				rules: [{ kind: 'service-auth' }, { kind: 'human' }],
-			},
-			{
-				// Public carve-out: ONLY the GitHub webhook ingest. GitHub posts here with no Access
-				// identity; the Worker HMAC-verifies it (src/webhook.ts). Nothing else is public.
-				key: 'webhook',
-				name: `${VOZKA_APP_ID}-webhook`,
-				destinations: [`${host}/webhooks/github`],
-				rules: [{ kind: 'public' }],
-			},
-		],
-	}
-}
-
-/**
  * vozka's authz vocabulary, reconciled into propustka so the admin UI can render real choices. Kept
  * in sync with the runtime by importing the SAME constants the Worker enforces against (src/actions.ts)
  * — the action strings and scope dimensions here are exactly what `auth.can(action, scope)` checks.
@@ -188,7 +146,6 @@ const schema: AppSchema = {
 export default defineApp({
 	id: VOZKA_APP_ID,
 	resources: buildVozkaWorker,
-	access: buildAccess(),
 	schema,
 	pipeline: {
 		// vozka's Worker source lives alongside this config (packages/worker).
@@ -201,16 +158,15 @@ export default defineApp({
 		//   - GITHUB_WEBHOOK_SECRET   — HMAC-verifies inbound POST /webhooks/github.
 		//   - CLOUDFLARE_API_TOKEN    — the account-wide CF token vozka deploys every app with (single
 		//                               account → one token; same token that authenticated THIS deploy).
-		//   - PROPUSTKA_CLIENT_ID/SECRET — vozka's propustka provisioning key, injected into deploys that
-		//                               reconcile schema/access. Omit at deploy to run without reconcile.
+		//   - PROPUSTKA_PROVISIONING_KEY — vozka's seeded propustka provisioning `px_` key, injected into
+		//                               deploys that reconcile schema. Omit at deploy to run without reconcile.
 		// Their VALUES are read from the environment by name at deploy time (never inlined here).
 		secrets: [
 			'VOZKA_VAULT_KEY',
 			'GITHUB_APP_PRIVATE_KEY',
 			'GITHUB_WEBHOOK_SECRET',
 			'CLOUDFLARE_API_TOKEN',
-			'PROPUSTKA_CLIENT_ID',
-			'PROPUSTKA_CLIENT_SECRET',
+			'PROPUSTKA_PROVISIONING_KEY',
 		],
 	},
 })

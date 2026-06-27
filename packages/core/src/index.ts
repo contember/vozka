@@ -5,7 +5,6 @@ export { deploy } from './deploy'
 export { buildPlan, findMigratableDatabases } from './plan'
 export type { MigratableDatabase } from './plan'
 export {
-	type AccessReconciler,
 	type CommandResult,
 	type CommandRunner,
 	type CommandSpec,

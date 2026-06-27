@@ -1,4 +1,3 @@
-import { FakeIamClient } from '@propustka/client'
 import { logsKey } from '@vozka/runner'
 import { describe, expect, test } from 'bun:test'
 import type { ApiDeps } from '../api/router'
@@ -6,10 +5,11 @@ import { handleApi } from '../api/router'
 import { uuidv7 } from '../db'
 import type { DeployJobMessage } from '../run-lifecycle'
 import { createHarness } from './helpers/harness'
+import { allowAllIam } from './helpers/iam'
 
 // Registry + onboarding row creation, and run-history reads, driven through the real `handleApi`
-// router against the real schema (in-memory sqlite). An allow-all FakeIamClient lets us focus on the
-// data path here; ACL is covered separately in acl.test.ts.
+// router against the real schema (in-memory sqlite). An allow-all dev authenticator lets us focus on
+// the data path here; ACL is covered separately in acl.test.ts.
 
 function makeDeps(): { deps: ApiDeps; queue: DeployJobMessage[]; logStore: Map<string, string> } {
 	const { db } = createHarness()
@@ -17,7 +17,7 @@ function makeDeps(): { deps: ApiDeps; queue: DeployJobMessage[]; logStore: Map<s
 	const logStore = new Map<string, string>()
 	const deps: ApiDeps = {
 		db,
-		iam: new FakeIamClient(),
+		iam: allowAllIam(),
 		queue: {
 			send(m) {
 				queue.push(m)

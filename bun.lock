@@ -26,13 +26,13 @@
       "version": "0.0.1",
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20251001.0",
-        "@propustka/core": "^0.0.5",
+        "@propustka/core": "^0.0.6",
         "@types/bun": "latest",
         "oblaka-iac": "^0.0.18",
         "wrangler": "4.72.0",
       },
       "peerDependencies": {
-        "@propustka/core": "^0.0.5",
+        "@propustka/core": "^0.0.6",
         "oblaka-iac": ">=0.0.18",
       },
     },
@@ -47,13 +47,13 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20251001.0",
-        "@propustka/client": "^0.0.5",
+        "@propustka/client": "^0.0.6",
         "@types/bun": "latest",
         "oblaka-iac": "^0.0.18",
         "wrangler": "4.72.0",
       },
       "peerDependencies": {
-        "@propustka/client": "^0.0.5",
+        "@propustka/client": "^0.0.6",
         "oblaka-iac": ">=0.0.18",
       },
     },
@@ -94,7 +94,7 @@
       "name": "@vozka/worker",
       "version": "0.0.1",
       "dependencies": {
-        "@propustka/client": "^0.0.5",
+        "@propustka/client": "^0.0.6",
         "@vozka/core": "workspace:*",
         "@vozka/runner": "workspace:*",
         "vozka-config": "workspace:*",
@@ -333,9 +333,9 @@
 
     "@poppinss/exception": ["@poppinss/exception@1.2.3", "", {}, "sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw=="],
 
-    "@propustka/client": ["@propustka/client@0.0.5", "", { "dependencies": { "@propustka/core": "^0.0.5" } }, "sha512-cIhJRGBpRVe73v1R5qrS7w4wShj3oDcyzRLslz1fPUCbTaoqkl9SvJchWBn2u5s2obf33kBeeAj+drO/cNS8Rg=="],
+    "@propustka/client": ["@propustka/client@0.0.6", "", { "dependencies": { "@propustka/core": "^0.0.6", "jose": "^5.9.0" } }, "sha512-XpnhziEEHPMVIru4eFQcj/ovYo1UFJlKuMBzQVTGq/4CZxOxv3dKZy7Tr8Q5Zdj1/HXf+JfLibXdDBbCHvaK4g=="],
 
-    "@propustka/core": ["@propustka/core@0.0.5", "", {}, "sha512-V1gXdq2NXcTB5ITVLBOkuY1wDAsxf7SFnOz/L+ZTETtwAfq0u9vDnOOSR0SxSGpW2nelMr9hTzMsTFgd61dtYA=="],
+    "@propustka/core": ["@propustka/core@0.0.6", "", {}, "sha512-WnP2zyhKlq2jnCAX3lhGeh3OEgjKH5071qhUmiRfqhNDqSzKsFVSOx/oUsN65C/HUc8lxwSoL/ZxEMnbM2lLSA=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-rc.3", "", {}, "sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q=="],
 
@@ -458,6 +458,8 @@
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
     "gensync": ["gensync@1.0.0-beta.2", "", {}, "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="],
+
+    "jose": ["jose@5.10.0", "", {}, "sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg=="],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 

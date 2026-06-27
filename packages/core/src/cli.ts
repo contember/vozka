@@ -33,7 +33,7 @@ Options:
 
 Credentials are read from the environment:
   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (required)
-  PROPUSTKA_URL, PROPUSTKA_CLIENT_ID, PROPUSTKA_CLIENT_SECRET (optional)
+  PROPUSTKA_URL, PROPUSTKA_PROVISIONING_KEY (optional; the px_ admin bearer for schema reconcile)
   VOZKA_DOMAIN (optional; the control-plane host for \`platform deploy\`)
 
 Secrets declared in \`pipeline.secrets\` are read from the environment by name.
@@ -108,8 +108,7 @@ const buildContext = (config: AppConfig, env: string, dir: string, dryRun: boole
 		accountId: requireEnv('CLOUDFLARE_ACCOUNT_ID'),
 		apiToken: requireEnv('CLOUDFLARE_API_TOKEN'),
 		propustkaUrl: process.env['PROPUSTKA_URL'],
-		clientId: process.env['PROPUSTKA_CLIENT_ID'],
-		clientSecret: process.env['PROPUSTKA_CLIENT_SECRET'],
+		adminKey: process.env['PROPUSTKA_PROVISIONING_KEY'],
 		secrets: gatherSecrets(config),
 		vars: gatherVars(config),
 		cwd: dir,

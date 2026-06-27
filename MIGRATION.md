@@ -5,10 +5,10 @@ Cloudflare account — never one vozka spanning accounts (vozka is single-accoun
 
 ## Current state (today)
 
-| Account       | propustka | Apps deployed via `.github/workflows/deploy.yml`                                            |
-| ------------- | --------- | ------------------------------------------------------------------------------------------- |
-| **contember** | live      | **opice** (`deploy/prod` only), **poplach** (`deploy/prod`)                                  |
-| **mangoweb**  | live      | **poplach** (`deploy/mangoweb`), **revizor** (`deploy/mangoweb`, mangoweb-only — no opice)   |
+| Account       | propustka | Apps deployed via `.github/workflows/deploy.yml`                                           |
+| ------------- | --------- | ------------------------------------------------------------------------------------------ |
+| **contember** | live      | **opice** (`deploy/prod` only), **poplach** (`deploy/prod`)                                |
+| **mangoweb**  | live      | **poplach** (`deploy/mangoweb`), **revizor** (`deploy/mangoweb`, mangoweb-only — no opice) |
 
 revizor's `deploy.yml` carries a `deploy/prod → contember` target option, but it was never configured
 (only the `mangoweb` GitHub Environment exists, `REVIZOR_HOSTNAME = revizor.mgwsite.com`) — so revizor is

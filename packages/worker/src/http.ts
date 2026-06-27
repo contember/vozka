@@ -6,9 +6,10 @@ export function json(body: unknown, init?: ResponseInit): Response {
 	})
 }
 
-/** A structured JSON error with an HTTP status. */
-export function error(status: number, message: string): Response {
-	return json({ error: message }, { status })
+/** A structured JSON error with an HTTP status. `extra` merges extra fields into the body (e.g. a
+ * `loginUrl` on a 401 so the dashboard can bounce the browser to propustka's SSO login). */
+export function error(status: number, message: string, extra?: Record<string, unknown>): Response {
+	return json({ error: message, ...extra }, { status })
 }
 
 /**

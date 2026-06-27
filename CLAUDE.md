@@ -1,7 +1,7 @@
 # vozka
 
 A deploy control plane for a Cloudflare Workers ecosystem. An app declares its full deploy surface
-— CF resources (`oblaka-iac`), propustka Access/authz, and a build pipeline — in one
+— CF resources (`oblaka-iac`), propustka authz (`schema`), and a build pipeline — in one
 `vozka.config.ts`; vozka provisions + deploys it (CLI today; control-plane Worker + dashboard).
 
 ## Tech Stack
@@ -9,7 +9,7 @@ A deploy control plane for a Cloudflare Workers ecosystem. An app declares its f
 - **Bun** — runtime + workspaces. Libraries run TypeScript directly (`exports.bun` → `src`); no build step.
 - **TypeScript** strict, ESM (`"type": "module"`) everywhere.
 - **Cloudflare Workers** — Worker + Durable Objects + Containers + D1 + Queues + R2.
-- `oblaka-iac` (CF provisioning DSL), `@propustka/*` (Access edge + IAM), `@buzola/*` (SPA router).
+- `oblaka-iac` (CF provisioning DSL), `@propustka/*` (native auth + IAM, no Cloudflare Access), `@buzola/*` (SPA router).
 
 ## Commands
 
@@ -50,6 +50,10 @@ resource primitive and the propustka declaration types, so a `vozka.config.ts` n
 - **`oblaka-iac` resolves from npm, pinned to `^0.0.17`** (the first published version with the programmatic
   `deploy()` the engine calls). The old `file:../oblaka` override is gone. vozka + oblaka + propustka are a
   co-versioned suite — bump the pin deliberately (every package + the runner image's `docker/package.json`).
+  **`@propustka/* ^0.0.6`** is the native-auth model (propustka issues its own tokens, no Cloudflare Access):
+  `reconcileSchema({ adminKey })` is the only reconcile, `PropustkaAuth` is the request-auth front door,
+  the provisioning credential is one seeded `px_` key (`PROPUSTKA_PROVISIONING_KEY`). Bumping it again is a
+  suite-wide co-version.
 - **`config`, `core`, `worker`, `runner` relax exactly two strict flags** (`noUncheckedIndexedAccess`,
   `noPropertyAccessFromIndexSignature`) ONLY to tolerate oblaka's raw-TS source — `runner` joined the set
   when it began hosting `vozka-runner.config.ts` (the executor split), the same reason `worker` relaxes

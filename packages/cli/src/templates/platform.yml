@@ -72,10 +72,13 @@ jobs:
           echo "$PWD/packages/runner/node_modules/.bin" >> "$GITHUB_PATH"
 
       # ── Stage 1 — propustka (root authz) ─────────────────────────────────────────────────────────────
-      # DEFERRED (Phase B): propustka's deploy is being refactored. Once it lands, wire propustka's deploy
-      # HERE (this repo OWNS the root-of-trust deploy) — it SEEDS the operator-generated provisioning key
-      # (PROPUSTKA_CLIENT_ID/_SECRET) that Stage 2 then uses. Until then, point those at a key the live
-      # propustka already accepts.
+      # DEFERRED to the account bring-up: propustka is native-auth now and ships its own `vozka.config.ts`,
+      # so this repo CAN own its deploy here (checkout contember/propustka → `vozka deploy` it), SEEDING the
+      # operator-generated provisioning key as the `PROPUSTKA_PROVISIONING_KEY` secret that Stage 2 reuses.
+      # Wiring it needs propustka's own deploy config in this Environment (PROPUSTKA_SIGNING_KEYS,
+      # PROPUSTKA_OIDC_CLIENT_SECRET, the OIDC issuer/client + HUMAN_EMAIL_DOMAINS vars) — provisioned as
+      # part of `vozka init`'s propustka step. Until then propustka deploys via its OWN repo pipeline and
+      # this Environment just carries the shared PROPUSTKA_PROVISIONING_KEY + PROPUSTKA_URL.
 
       # ── Stage 2 — vozka platform (executor + control plane) ──────────────────────────────────────────
       - name: Deploy vozka-runner + vozka (platform deploy)
@@ -86,8 +89,8 @@ jobs:
           VOZKA_VAULT_KEY: ${{ secrets.VOZKA_VAULT_KEY }}
           GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
           GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
-          PROPUSTKA_CLIENT_ID: ${{ secrets.PROPUSTKA_CLIENT_ID }}
-          PROPUSTKA_CLIENT_SECRET: ${{ secrets.PROPUSTKA_CLIENT_SECRET }}
+          # The seeded propustka provisioning key — vozka reconciles its own schema with it (Bearer px_).
+          PROPUSTKA_PROVISIONING_KEY: ${{ secrets.PROPUSTKA_PROVISIONING_KEY }}
           # Non-secret config (Environment Variables).
           VOZKA_DOMAIN: ${{ vars.VOZKA_DOMAIN }}
           GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}

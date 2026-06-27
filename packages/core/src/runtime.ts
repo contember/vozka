@@ -4,9 +4,9 @@
 // the seam that makes a true dry-run possible: the orchestrator decides what to skip, the runtime
 // just does what it's told.
 
-import { reconcileAccess, reconcileSchema } from '@propustka/client'
+import { reconcileSchema } from '@propustka/client'
 import { type Definition, deploy as oblakaDeploy, type DeployResult as OblakaDeployResult } from 'oblaka-iac'
-import type { AppAccess, AppSchema } from 'vozka-config'
+import type { AppSchema } from 'vozka-config'
 
 /** A single shell-out: the command + its argv, the cwd, extra env, and optional stdin. */
 export interface CommandSpec {
@@ -51,18 +51,14 @@ export interface ProvisionInput {
 /** Provisions resources via oblaka. The default impl calls oblaka's programmatic `deploy()`. */
 export type OblakaProvisioner = (input: ProvisionInput) => Promise<OblakaDeployResult>
 
-/** Reconcile one app's authz vocabulary into propustka. */
-export type SchemaReconciler = (input: { url: string; app: string; schema: AppSchema; clientId?: string; clientSecret?: string }) => Promise<void>
-
-/** Reconcile one app's Cloudflare Access edge rules into propustka. */
-export type AccessReconciler = (input: { url: string; app: string; access: AppAccess; clientId?: string; clientSecret?: string }) => Promise<void>
+/** Reconcile one app's authz vocabulary into propustka, authenticated with a `px_` admin bearer. */
+export type SchemaReconciler = (input: { url: string; app: string; schema: AppSchema; adminKey?: string }) => Promise<void>
 
 /** The full bundle of collaborators the orchestrator depends on. Tests substitute any subset. */
 export interface DeployRuntime {
 	runCommand: CommandRunner
 	provision: OblakaProvisioner
 	reconcileSchema: SchemaReconciler
-	reconcileAccess: AccessReconciler
 	/** Sink for human-readable progress / dry-run lines. Defaults to `console.log`. */
 	log: (line: string) => void
 }
@@ -99,16 +95,12 @@ const defaultProvision: OblakaProvisioner = (input) =>
 	})
 
 const defaultReconcileSchema: SchemaReconciler = (input) =>
-	reconcileSchema({ url: input.url, app: input.app, schema: input.schema, accessClientId: input.clientId, accessClientSecret: input.clientSecret })
-
-const defaultReconcileAccess: AccessReconciler = (input) =>
-	reconcileAccess({ url: input.url, app: input.app, access: input.access, accessClientId: input.clientId, accessClientSecret: input.clientSecret })
+	reconcileSchema({ url: input.url, app: input.app, schema: input.schema, adminKey: input.adminKey })
 
 /** The production runtime: real Bun spawn + real oblaka + real propustka, logging to stdout. */
 export const defaultRuntime: DeployRuntime = {
 	runCommand: defaultRunCommand,
 	provision: defaultProvision,
 	reconcileSchema: defaultReconcileSchema,
-	reconcileAccess: defaultReconcileAccess,
 	log: (line) => console.log(line),
 }
