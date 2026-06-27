@@ -1,7 +1,7 @@
 import type { FakePersona } from '@propustka/client'
 import { describe, expect, test } from 'bun:test'
 import { ACTIONS } from '../actions'
-import { type Authenticator, authorize, createIam, fakeAuthenticator, parseBootstrapAdmins, withBootstrapAdmins } from '../iam'
+import { type Authenticator, authorize, createIam, fakeAuthenticator, parseBootstrapAdmins, withBootstrapAdmins, withProvisioningKey } from '../iam'
 
 // The VOZKA_BOOTSTRAP_ADMINS fallback (src/iam.ts): a caller whose VERIFIED email is in the list is
 // authorized as admin even when the underlying IAM client would DENY — the escape hatch for the first
@@ -128,5 +128,58 @@ describe('createIam wires the fallback from VOZKA_BOOTSTRAP_ADMINS', () => {
 		if (!result.ok) {
 			expect(result.response.status).toBe(403)
 		}
+	})
+})
+
+describe('withProvisioningKey hatch (the machine analog of VOZKA_BOOTSTRAP_ADMINS)', () => {
+	const KEY = 'px_provision_secret_key_value'
+	// An inner authenticator that ALWAYS denies — so any success comes ONLY from the provisioning hatch.
+	const denyAll: Authenticator = { authenticate: () => Promise.resolve({ ok: false, status: 401, reason: 'no_credential' }) }
+	function reqWithBearer(token: string): Request {
+		return new Request('https://vozka.example/api/apps', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+	}
+
+	test('a request bearing the provisioning key is a global admin for EVERY action', async () => {
+		const iam = withProvisioningKey(denyAll, KEY)
+		for (const action of Object.values(ACTIONS)) {
+			const result = await authorize(iam, reqWithBearer(KEY), action)
+			expect(result.ok).toBe(true)
+		}
+	})
+
+	test('the provisioning caller is a SERVICE principal labelled `provisioning`', async () => {
+		const result = await authorize(withProvisioningKey(denyAll, KEY), reqWithBearer(KEY), ACTIONS.APP_MANAGE)
+		expect(result.ok).toBe(true)
+		if (result.ok) {
+			expect(result.auth.principal?.type).toBe('service')
+			expect(result.auth.principal?.label).toBe('provisioning')
+		}
+	})
+
+	test('a WRONG bearer falls through to the inner authenticator (denied)', async () => {
+		const result = await authorize(withProvisioningKey(denyAll, KEY), reqWithBearer('px_wrong_key'), ACTIONS.APP_MANAGE)
+		expect(result.ok).toBe(false)
+	})
+
+	test('no Authorization header falls through to the inner authenticator', async () => {
+		const req = new Request('https://vozka.example/api/apps', { method: 'POST' })
+		const result = await authorize(withProvisioningKey(denyAll, KEY), req, ACTIONS.APP_MANAGE)
+		expect(result.ok).toBe(false)
+	})
+
+	test('an EMPTY provisioning key is a transparent pass-through (returns the inner unchanged)', () => {
+		expect(withProvisioningKey(denyAll, '')).toBe(denyAll)
+	})
+
+	test('createIam wires it from PROPUSTKA_PROVISIONING_KEY — the key wins even over a denied dev persona', async () => {
+		// DEV with an UNKNOWN persona selector would be denied by the fake; the provisioning bearer is
+		// checked FIRST, so it short-circuits to global-admin regardless.
+		const iam = createIam({ DEV: 'true', VOZKA_BOOTSTRAP_ADMINS: '[]', PROPUSTKA_PROVISIONING_KEY: KEY })
+		const req = new Request('https://vozka.example/api/apps', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${KEY}`, 'X-Dev-Principal': 'ghost@unknown.test' },
+		})
+		const result = await authorize(iam, req, ACTIONS.APP_MANAGE)
+		expect(result.ok).toBe(true)
 	})
 })

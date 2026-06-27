@@ -60,6 +60,12 @@ export interface IamEnv {
 	 * escape hatch for the FIRST operator before propustka knows about vozka (see `withBootstrapAdmins`).
 	 */
 	VOZKA_BOOTSTRAP_ADMINS?: string
+	/**
+	 * The seeded propustka provisioning key (a `px_` bearer, also vozka's reconcile credential). A request
+	 * bearing it is authorized as a synthetic global-admin — the MACHINE analog of `VOZKA_BOOTSTRAP_ADMINS`
+	 * (see `withProvisioningKey`). Empty/unset disables it.
+	 */
+	PROPUSTKA_PROVISIONING_KEY?: string
 }
 
 /**
@@ -214,7 +220,63 @@ function realAuthenticator(env: IamEnv): Authenticator {
 export function createIam(env: IamEnv): Authenticator {
 	const bootstrapAdmins = parseBootstrapAdmins(env.VOZKA_BOOTSTRAP_ADMINS)
 	const base = env.DEV ? fakeAuthenticator({ personas: DEV_PERSONAS, defaultEmail: DEV_DEFAULT_EMAIL }) : realAuthenticator(env)
-	return withBootstrapAdmins(base, bootstrapAdmins)
+	// The provisioning-key hatch wraps OUTERMOST: a machine bearing the seeded key is admitted as a global
+	// admin BEFORE propustka is consulted (its mintFromKey only knows DB-backed credentials, not this
+	// env-only bootstrap key), so CI can onboard apps before any admin credential exists.
+	return withProvisioningKey(withBootstrapAdmins(base, bootstrapAdmins), (env.PROPUSTKA_PROVISIONING_KEY ?? '').trim())
+}
+
+/** The synthetic principal a provisioning-key request resolves to (mirrors propustka's `provisioning-admin`). */
+const PROVISIONING_PRINCIPAL: PrincipalIdentity = { id: 'provisioning-admin', type: 'service', label: 'provisioning' }
+
+/** A global-admin AuthContext for the provisioning key: every action allowed, no real grants, no audit sink. */
+function makeProvisioningContext(): AuthContext {
+	return { ok: true, principal: PROVISIONING_PRINCIPAL, can: () => true, scopedTo: () => null, audit: () => Promise.resolve() }
+}
+
+/** Extract the token from an `Authorization: Bearer <token>` header, or null. */
+function readBearerToken(header: string | null): string | null {
+	if (header === null) {
+		return null
+	}
+	const match = /^Bearer\s+(.+)$/i.exec(header.trim())
+	return match === null ? null : match[1]
+}
+
+/** Constant-time string compare (length-checked) — avoids leaking the provisioning key by timing. */
+function constantTimeEqual(a: string, b: string): boolean {
+	if (a.length !== b.length) {
+		return false
+	}
+	let diff = 0
+	for (let i = 0; i < a.length; i++) {
+		diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+	}
+	return diff === 0
+}
+
+/**
+ * Wrap an authenticator so a request bearing the seeded `PROPUSTKA_PROVISIONING_KEY` is authorized as a
+ * synthetic global-admin WITHOUT consulting propustka — the MACHINE analog of the `VOZKA_BOOTSTRAP_ADMINS`
+ * human hatch. propustka admits this env-only key on its OWN admin endpoints (`resolveCaller`), but vozka's
+ * `/api/*` gate mints a per-app token via `mintFromKey`, which only knows DB-backed credentials — so the
+ * control plane recognizes its operator's key HERE, letting CI register + deploy apps before any DB-backed
+ * admin credential exists. An empty key → a transparent pass-through (zero overhead in steady state).
+ */
+export function withProvisioningKey(inner: Authenticator, provisioningKey: string): Authenticator {
+	if (provisioningKey === '') {
+		return inner
+	}
+	return {
+		authenticate(request: Request): Promise<VozkaAuth> {
+			const bearer = readBearerToken(request.headers.get('Authorization'))
+			if (bearer !== null && constantTimeEqual(bearer, provisioningKey)) {
+				return Promise.resolve({ ok: true, context: makeProvisioningContext() })
+			}
+			return inner.authenticate(request)
+		},
+		takeSetCookie: () => inner.takeSetCookie?.(),
+	}
 }
 
 /**
