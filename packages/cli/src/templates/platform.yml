@@ -1,15 +1,15 @@
 name: platform
 
-# Deploys the {{ACCOUNT}} account's vozka control-plane BASE: vozka-runner (the deploy executor) + vozka
-# (the control plane). THIS repo is the per-account root of trust — it deploys vozka so vozka never has to
-# deploy itself. Idempotent: re-run for a first bring-up OR a routine redeploy. The concrete apps (poplach,
-# revizor, …) deploy THROUGH vozka, not here.
+# Deploys the {{ACCOUNT}} account's vozka control-plane BASE: propustka (Stage 1, root authz) → vozka-runner
+# + vozka (Stage 2, the executor + control plane). THIS repo is the per-account root of trust — it deploys
+# the base so vozka never has to deploy itself. Idempotent: re-run for a first bring-up OR a routine redeploy.
+# The concrete apps (poplach, revizor, …) deploy THROUGH vozka, not here.
 #
 # Generated + maintained by `vozka init {{ACCOUNT}}`. Secrets + variables live in the `{{ACCOUNT}}` GitHub
 # Environment (Settings → Environments → {{ACCOUNT}}) and are written there by the CLI — don't hand-edit them.
 #
-# contember/vozka is PUBLIC, so it's checked out tokenless. The vozka version this account runs is pinned in
-# `vozka.ref` (bump it + push to roll out a new base).
+# contember/vozka + contember/propustka are PUBLIC, so both are checked out tokenless. The versions this
+# account runs are pinned in `vozka.ref` + `propustka.ref` (bump one + push to roll out a new base).
 
 on:
   workflow_dispatch:
@@ -18,10 +18,17 @@ on:
         description: Build + push the runner image (FIRST bring-up on this account, or a deliberate rebuild)
         type: boolean
         default: false
+      retire_legacy_propustka_worker:
+        description: >-
+          Name of a LEGACY propustka Worker to delete BEFORE Stage 1 (one-off migration off an old
+          deploy — e.g. a CF-Access-era `mangoweb-propustka-worker`). Deleting it releases its Custom
+          Domain so the new env-prod propustka can claim it. Empty = skip (the normal case).
+        type: string
+        default: ''
   push:
     branches: [main]
     # Only a version bump (or a workflow edit) redeploys — not a README tweak.
-    paths: ['vozka.ref', '.github/workflows/platform.yml']
+    paths: ['vozka.ref', 'propustka.ref', '.github/workflows/platform.yml']
 
 concurrency:
   group: platform-deploy
@@ -33,23 +40,41 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     # Secrets + variables resolve from this GitHub Environment (created + populated by `vozka init`).
     environment: {{ACCOUNT}}
+    # Cloudflare creds at the JOB level so EVERY oblaka/wrangler step (provision, migrate, deploy, secret
+    # put) inherits them — wrangler errors in a non-interactive shell without CLOUDFLARE_API_TOKEN.
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Checkout this repo (base config + pinned ref)
+      - name: Checkout this repo (base config + pinned refs)
         uses: actions/checkout@v5
 
-      - name: Resolve pinned vozka ref
+      - name: Resolve pinned refs
         id: ref
-        run: echo "ref=$(tr -d '[:space:]' < vozka.ref)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "vozka=$(tr -d '[:space:]' < vozka.ref)" >> "$GITHUB_OUTPUT"
+          if [ -f propustka.ref ]; then
+            echo "propustka=$(tr -d '[:space:]' < propustka.ref)" >> "$GITHUB_OUTPUT"
+          else
+            echo "propustka=main" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Checkout contember/vozka@${{ steps.ref.outputs.ref }}
+      - name: Checkout contember/vozka@${{ steps.ref.outputs.vozka }}
         uses: actions/checkout@v5
         with:
           repository: contember/vozka
-          ref: ${{ steps.ref.outputs.ref }}
+          ref: ${{ steps.ref.outputs.vozka }}
           path: vozka
+
+      - name: Checkout contember/propustka@${{ steps.ref.outputs.propustka }}
+        uses: actions/checkout@v5
+        with:
+          repository: contember/propustka
+          ref: ${{ steps.ref.outputs.propustka }}
+          path: propustka
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -59,26 +84,90 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install
+      - name: Install (vozka)
         working-directory: vozka
         run: bun install
 
       # The deploy engine spawns a BARE `wrangler` (Bun.spawn), so the workspace bins must be on PATH.
-      - name: Put workspace bins on PATH
+      - name: Put vozka workspace bins on PATH
         working-directory: vozka
         run: |
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
           echo "$PWD/packages/worker/node_modules/.bin" >> "$GITHUB_PATH"
           echo "$PWD/packages/runner/node_modules/.bin" >> "$GITHUB_PATH"
 
+      # ── Migration escape hatch — retire a legacy propustka Worker ─────────────────────────────────────
+      # Off by default. When `retire_legacy_propustka_worker` is set, delete that Worker so its Custom Domain
+      # is freed for the new env-prod propustka below. Its D1 database is NOT deleted (a Worker delete leaves
+      # databases) — orphaned, prune it by hand later. One-off: clear the input on subsequent runs.
+      - name: Retire legacy propustka Worker
+        if: ${{ inputs.retire_legacy_propustka_worker != '' }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          LEGACY: ${{ inputs.retire_legacy_propustka_worker }}
+        # `wrangler delete` is non-interactive in CI (no TTY → no confirmation prompt). Removing the Worker
+        # detaches its Custom Domain. If the domain attach below races a just-freed hostname, re-run (idempotent).
+        run: bunx wrangler delete --name "$LEGACY"
+
       # ── Stage 1 — propustka (root authz) ─────────────────────────────────────────────────────────────
-      # DEFERRED to the account bring-up: propustka is native-auth now and ships its own `vozka.config.ts`,
-      # so this repo CAN own its deploy here (checkout contember/propustka → `vozka deploy` it), SEEDING the
-      # operator-generated provisioning key as the `PROPUSTKA_PROVISIONING_KEY` secret that Stage 2 reuses.
-      # Wiring it needs propustka's own deploy config in this Environment (PROPUSTKA_SIGNING_KEYS,
-      # PROPUSTKA_OIDC_CLIENT_SECRET, the OIDC issuer/client + HUMAN_EMAIL_DOMAINS vars) — provisioned as
-      # part of `vozka init`'s propustka step. Until then propustka deploys via its OWN repo pipeline and
-      # this Environment just carries the shared PROPUSTKA_PROVISIONING_KEY + PROPUSTKA_URL.
+      # propustka is native-auth: it deploys via its OWN oblaka.ts + wrangler (NOT vozka's engine — oblaka
+      # objects can't cross the vozka↔propustka node_modules realms, so `vozka deploy` of a foreign checkout
+      # would mis-provision). This mirrors propustka's own deploy.yml, pinned to `propustka.ref`, at env=prod.
+      # NO PROPUSTKA_URL here → no self-reconcile; propustka's empty schema needs none. vozka (Stage 2)
+      # reconciles its schema against the now-live propustka.
+      - name: Install (propustka)
+        working-directory: propustka
+        run: bun install
+
+      - name: Build propustka admin SPA
+        working-directory: propustka/packages/admin-ui
+        run: bun run build
+
+      - name: Provision propustka D1 + write wrangler.jsonc (oblaka --remote)
+        working-directory: propustka/packages/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Non-secret config (Environment Variables). HUMAN_* / OIDC_* / SESSION_* are read by oblaka.ts.
+          PROPUSTKA_HOSTNAME: ${{ vars.PROPUSTKA_HOSTNAME }}
+          PROPUSTKA_HUMAN_EMAIL_DOMAINS: ${{ vars.PROPUSTKA_HUMAN_EMAIL_DOMAINS }}
+          PROPUSTKA_HUMAN_EMAILS: ${{ vars.PROPUSTKA_HUMAN_EMAILS }}
+          PROPUSTKA_BOOTSTRAP_ADMINS: ${{ vars.PROPUSTKA_BOOTSTRAP_ADMINS }}
+          PROPUSTKA_OIDC_ISSUER: ${{ vars.PROPUSTKA_OIDC_ISSUER }}
+          PROPUSTKA_OIDC_CLIENT_ID: ${{ vars.PROPUSTKA_OIDC_CLIENT_ID }}
+          PROPUSTKA_OIDC_SCOPES: ${{ vars.PROPUSTKA_OIDC_SCOPES }}
+          PROPUSTKA_OIDC_REQUIRE_VERIFIED_EMAIL: ${{ vars.PROPUSTKA_OIDC_REQUIRE_VERIFIED_EMAIL }}
+          PROPUSTKA_SESSION_COOKIE_DOMAIN: ${{ vars.PROPUSTKA_SESSION_COOKIE_DOMAIN }}
+          # Validated-present by oblaka (it throws if absent) but pushed as Worker secrets after deploy.
+          PROPUSTKA_SIGNING_KEYS: ${{ secrets.PROPUSTKA_SIGNING_KEYS }}
+          PROPUSTKA_OIDC_CLIENT_SECRET: ${{ secrets.PROPUSTKA_OIDC_CLIENT_SECRET }}
+        run: bunx oblaka oblaka.ts --env=prod --state-namespace=propustka-state --remote
+
+      - name: Apply propustka D1 migrations (remote)
+        working-directory: propustka/packages/worker
+        run: bunx wrangler d1 migrations apply DB --remote
+
+      - name: Deploy propustka Worker
+        working-directory: propustka/packages/worker
+        run: bunx wrangler deploy
+
+      # The native-auth runtime secrets (oblaka can't express secrets): ES256 signing keys + the OIDC client
+      # secret, plus the SEEDED provisioning key the control plane (vozka) reconciles with. The wrangler secret
+      # names are the Worker binding names (propustka env.ts): PROPUSTKA_SIGNING_KEYS, OIDC_CLIENT_SECRET,
+      # PROPUSTKA_PROVISIONING_KEY. Idempotent; persists across deploys.
+      - name: Set propustka Worker secrets (native auth + provisioning)
+        working-directory: propustka/packages/worker
+        env:
+          PROPUSTKA_SIGNING_KEYS: ${{ secrets.PROPUSTKA_SIGNING_KEYS }}
+          PROPUSTKA_OIDC_CLIENT_SECRET: ${{ secrets.PROPUSTKA_OIDC_CLIENT_SECRET }}
+          PROPUSTKA_PROVISIONING_KEY: ${{ secrets.PROPUSTKA_PROVISIONING_KEY }}
+        run: |
+          printf '%s' "$PROPUSTKA_SIGNING_KEYS" | bunx wrangler secret put PROPUSTKA_SIGNING_KEYS
+          printf '%s' "$PROPUSTKA_OIDC_CLIENT_SECRET" | bunx wrangler secret put OIDC_CLIENT_SECRET
+          if [ -n "$PROPUSTKA_PROVISIONING_KEY" ]; then
+            printf '%s' "$PROPUSTKA_PROVISIONING_KEY" | bunx wrangler secret put PROPUSTKA_PROVISIONING_KEY
+          fi
 
       # ── Stage 2 — vozka platform (executor + control plane) ──────────────────────────────────────────
       - name: Deploy vozka-runner + vozka (platform deploy)
@@ -112,6 +201,8 @@ jobs:
           {
             echo "### platform deploy → {{ACCOUNT}}"
             echo ""
-            echo "- vozka ref: \`${{ steps.ref.outputs.ref }}\`"
+            echo "- vozka ref: \`${{ steps.ref.outputs.vozka }}\`"
+            echo "- propustka ref: \`${{ steps.ref.outputs.propustka }}\`"
             echo "- build runner image: \`${{ inputs.build_runner_image || 'false' }}\`"
+            echo "- retired legacy propustka: \`${{ inputs.retire_legacy_propustka_worker || '(none)' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

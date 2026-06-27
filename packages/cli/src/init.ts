@@ -9,13 +9,13 @@
  * into `.env`, `gh` over stdin, and child env — never through `log.ts`.
  */
 
-import { randomBytes } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { findZone, listZones, resolveAccountId, verifyToken } from './cloudflare'
 import { fromEnv, persistEnv } from './envfile'
 import { configureEnvironment, triggerPlatformWorkflow } from './environment'
 import { createAppViaManifest, type CreatedGitHubApp, promptInstall } from './github-app'
 import { action, detail, info, ok, step, url, warn } from './log'
-import { confirm, retry, secretOrEnv, text } from './prompt'
+import { confirm, retry, secret, secretOrEnv, text } from './prompt'
 import { defaultCheckoutDir, readVozkaRef, scaffoldPlatformRepo } from './scaffold'
 
 /** Everything collected before the scaffold + environment write. */
@@ -27,9 +27,26 @@ interface Collected {
 	githubOrg: string
 	platformRepo: string
 	propustkaUrl: string
+	/** propustka's admin hostname (the host of `propustkaUrl`) — its Custom Domain + token `iss`. */
+	propustkaHostname: string
+	/** OIDC provider issuer propustka federates human login to (discovery URL base). */
+	oidcIssuer: string
+	/** OIDC client id (public). The placeholder constant when the operator deferred real SSO. */
+	oidcClientId: string
+	/** Email domains admitted as a human at propustka login (self-provisioning allowlist). */
+	humanEmailDomains: string[]
 	bootstrapAdmins: string[]
 	installRepos: string[]
 }
+
+/**
+ * Placeholder OIDC — written when the operator brings the base up BEFORE wiring a real SSO provider.
+ * propustka boots + machine auth (provisioning key) + the bootstrap-admin hatch all work; only human
+ * SSO login is inert until real `PROPUSTKA_OIDC_CLIENT_ID`/`_SECRET` replace these. Issuer stays a real
+ * discoverable host so propustka's OIDC discovery doesn't fail at boot.
+ */
+const PLACEHOLDER_OIDC_CLIENT_ID = 'placeholder.apps.googleusercontent.com'
+const PLACEHOLDER_OIDC_CLIENT_SECRET = 'placeholder-oidc-client-secret-rotate-when-sso-wired'
 
 /** Run the full bring-up for `<account>`. */
 export async function runInit(account: string): Promise<void> {
@@ -38,6 +55,8 @@ export async function runInit(account: string): Promise<void> {
 	const collected = await collect(account)
 	const vaultKey = await ensureVaultKey()
 	const provisioning = await ensureProvisioningKey()
+	const signingKeys = await ensureSigningKeys()
+	const oidcClientSecret = await ensureOidcClientSecret(collected.oidcClientId === PLACEHOLDER_OIDC_CLIENT_ID)
 	const app = await ensureGitHubApp(collected)
 
 	const { dir } = await scaffoldPlatformRepo({
@@ -59,12 +78,22 @@ export async function runInit(account: string): Promise<void> {
 			GH_APP_PRIVATE_KEY: app.pem,
 			GH_WEBHOOK_SECRET: app.webhookSecret,
 			PROPUSTKA_PROVISIONING_KEY: provisioning,
+			// propustka Stage 1 native-auth secrets (pushed as propustka Worker secrets by the pipeline).
+			PROPUSTKA_SIGNING_KEYS: signingKeys,
+			PROPUSTKA_OIDC_CLIENT_SECRET: oidcClientSecret,
 		},
 		vars: {
 			VOZKA_DOMAIN: collected.vozkaDomain,
 			GH_APP_ID: String(app.id),
 			PROPUSTKA_URL: collected.propustkaUrl,
 			VOZKA_BOOTSTRAP_ADMINS: JSON.stringify(collected.bootstrapAdmins),
+			// propustka Stage 1 non-secret config (read by propustka's oblaka.ts).
+			PROPUSTKA_HOSTNAME: collected.propustkaHostname,
+			PROPUSTKA_OIDC_ISSUER: collected.oidcIssuer,
+			PROPUSTKA_OIDC_CLIENT_ID: collected.oidcClientId,
+			PROPUSTKA_HUMAN_EMAIL_DOMAINS: JSON.stringify(collected.humanEmailDomains),
+			// The same first-admin emails admit the operator to propustka itself (its own bootstrap hatch).
+			PROPUSTKA_BOOTSTRAP_ADMINS: JSON.stringify(collected.bootstrapAdmins),
 		},
 	})
 
@@ -123,7 +152,37 @@ async function collect(account: string): Promise<Collected> {
 	const reposRaw = await text('App repos to install the GitHub App on (comma-separated, e.g. contember/poplach)', '')
 	const installRepos = reposRaw.split(',').map((s) => s.trim()).filter(Boolean)
 
-	return { account, accountId: cfAccount.id, apiToken, vozkaDomain, githubOrg, platformRepo, propustkaUrl, bootstrapAdmins, installRepos }
+	// propustka Stage 1 config: its admin hostname (= the propustka URL's host, its Custom Domain + token
+	// `iss`), the OIDC upstream it federates human login to, and the email-domain allowlist. The OIDC client
+	// id may be left blank to bring the base up with PLACEHOLDER OIDC — propustka boots and machine auth +
+	// the bootstrap-admin hatch work immediately; only human SSO login waits for a real provider.
+	step('propustka auth config (Stage 1)')
+	const propustkaHostname = new URL(propustkaUrl).host
+	ok(`propustka hostname (from URL): ${propustkaHostname}`)
+	const oidcIssuer = await text('propustka OIDC issuer URL', 'https://accounts.google.com')
+	const oidcClientIdRaw = await text('propustka OIDC client id (blank = placeholder OIDC for now)', '')
+	if (oidcClientIdRaw === '') {
+		warn('Placeholder OIDC — human SSO login is inert until you set real PROPUSTKA_OIDC_CLIENT_ID + _SECRET.')
+	}
+	const oidcClientId = oidcClientIdRaw === '' ? PLACEHOLDER_OIDC_CLIENT_ID : oidcClientIdRaw
+	const humanRaw = await text('propustka human email domains, comma-separated (who may self-provision at login)', '')
+	const humanEmailDomains = humanRaw.split(',').map((s) => s.trim()).filter(Boolean)
+
+	return {
+		account,
+		accountId: cfAccount.id,
+		apiToken,
+		vozkaDomain,
+		githubOrg,
+		platformRepo,
+		propustkaUrl,
+		propustkaHostname,
+		oidcIssuer,
+		oidcClientId,
+		humanEmailDomains,
+		bootstrapAdmins,
+		installRepos,
+	}
 }
 
 /**
@@ -167,6 +226,53 @@ async function ensureProvisioningKey(): Promise<string> {
 	ok('Provisioning key generated + saved to .env.')
 	detail('propustka Stage 1 seeds this as an admin credential; vozka Stage 2 reconciles with it.')
 	return key
+}
+
+/** One ES256 (EC P-256) private JWK with an RFC 7638 thumbprint `kid`, shaped exactly as propustka's
+ * `Signer.fromPrivateJwks` loads it (index 0 = the active signer). */
+function generateEs256Jwk(): JsonWebKey & { kid: string } {
+	const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+	const jwk = privateKey.export({ format: 'jwk' })
+	// RFC 7638 thumbprint over the canonical EC members, lexicographic order (crv, kty, x, y).
+	const thumbprint = createHash('sha256').update(JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y })).digest('base64url')
+	return { ...jwk, kid: thumbprint, alg: 'ES256', use: 'sig' }
+}
+
+/**
+ * Generate propustka's token-signing key (Stage 1): a JSON array with one ES256 private JWK. propustka
+ * signs every token it issues with index 0 and publishes the public half in its JWKS. Stored once
+ * (`PROPUSTKA_SIGNING_KEYS`) and pushed as a propustka Worker secret by Stage 1. Resume-safe; it must be
+ * DURABLE — rotating it invalidates every live token (so we never regenerate when one already exists).
+ */
+async function ensureSigningKeys(): Promise<string> {
+	step('Generate the propustka signing key (PROPUSTKA_SIGNING_KEYS)')
+	const existing = fromEnv('PROPUSTKA_SIGNING_KEYS')
+	if (existing !== undefined) {
+		ok('Reusing PROPUSTKA_SIGNING_KEYS from .env (resume).')
+		return existing
+	}
+	const keys = JSON.stringify([generateEs256Jwk()])
+	await persistEnv('PROPUSTKA_SIGNING_KEYS', keys)
+	ok('propustka signing key generated (1 × ES256) + saved to .env.')
+	return keys
+}
+
+/**
+ * Resolve propustka's OIDC client secret (Stage 1). Reused from `.env` on resume; otherwise a hidden
+ * prompt for a real provider, or the placeholder when SSO was deferred (blank client id). Always persisted
+ * so a re-run reuses it. NEVER logged.
+ */
+async function ensureOidcClientSecret(placeholder: boolean): Promise<string> {
+	step('propustka OIDC client secret (PROPUSTKA_OIDC_CLIENT_SECRET)')
+	const existing = fromEnv('PROPUSTKA_OIDC_CLIENT_SECRET')
+	if (existing !== undefined) {
+		ok('Reusing PROPUSTKA_OIDC_CLIENT_SECRET from .env (resume).')
+		return existing
+	}
+	const value = placeholder ? PLACEHOLDER_OIDC_CLIENT_SECRET : await secret('propustka OIDC client secret')
+	await persistEnv('PROPUSTKA_OIDC_CLIENT_SECRET', value)
+	ok(placeholder ? 'Placeholder OIDC client secret saved to .env.' : 'OIDC client secret saved to .env.')
+	return value
 }
 
 /** Create the GitHub App via the manifest flow (or reuse from .env), then prompt to install it. */

@@ -19,8 +19,11 @@ const TEMPLATES = resolve(import.meta.dir, 'templates')
 
 /** The CLI-owned files, refreshed on every run (rendered from templates). */
 const OWNED_FILES = ['.gitignore', 'README.md', '.github/workflows/platform.yml']
-/** All scaffold files we ever `git add` (OWNED_FILES + the operator-owned, write-once `vozka.ref`). */
-const ALL_FILES = ['.gitignore', 'README.md', 'vozka.ref', '.github/workflows/platform.yml']
+/**
+ * All scaffold files we ever `git add` (OWNED_FILES + the operator-owned, write-once pin files
+ * `vozka.ref` / `propustka.ref` — bumping either is how you roll a new base).
+ */
+const ALL_FILES = ['.gitignore', 'README.md', 'vozka.ref', 'propustka.ref', '.github/workflows/platform.yml']
 
 export interface ScaffoldInput {
 	/** The base repo, e.g. `manGoweb/vozka-platform`. */
@@ -55,6 +58,9 @@ async function materialize(dir: string, account: string): Promise<void> {
 	await writeFile(dir, '.github/workflows/platform.yml', await renderTemplate('platform.yml', account))
 	if (!existsSync(resolve(dir, 'vozka.ref'))) {
 		await writeFile(dir, 'vozka.ref', await Bun.file(resolve(TEMPLATES, 'vozka.ref')).text())
+	}
+	if (!existsSync(resolve(dir, 'propustka.ref'))) {
+		await writeFile(dir, 'propustka.ref', await Bun.file(resolve(TEMPLATES, 'propustka.ref')).text())
 	}
 }
 
