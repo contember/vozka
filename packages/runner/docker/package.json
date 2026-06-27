@@ -9,8 +9,8 @@
 	],
 	"//": "Slimmed workspace root baked into the runner image. oblaka-iac, @propustka/* and wrangler all resolve from npm; oblaka-iac is pinned to the version that ships the programmatic deploy() the engine calls (kept in lockstep with the workspace packages). wrangler is installed globally in the image (on PATH).",
 	"dependencies": {
-		"@propustka/client": "^0.0.5",
-		"@propustka/core": "^0.0.5",
+		"@propustka/client": "^0.0.6",
+		"@propustka/core": "^0.0.6",
 		"oblaka-iac": "^0.0.18"
 	}
 }
