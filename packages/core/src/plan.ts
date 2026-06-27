@@ -2,7 +2,7 @@
 // and in WHAT order, materializing a `DeployPlan` of `JobSpec`s. The orchestrator (`deploy.ts`)
 // executes the plan; nothing here touches Cloudflare, propustka, or the shell.
 
-import { D1Database, type Worker } from 'oblaka-iac'
+import type { Worker } from 'oblaka-iac'
 import type { AppConfig } from 'vozka-config'
 import type { DeployContext, DeployPlan, JobSpec } from './types'
 
@@ -15,15 +15,39 @@ export interface MigratableDatabase {
 }
 
 /**
+ * The D1 database name IF `value` is a migratable D1 binding — its `options` carry a non-empty string
+ * `migrationsDir` (only a D1Database declares one) + a string `name`. Matched by SHAPE, not
+ * `instanceof D1Database`: when the runner deploys a CLONED app, the app's `D1Database` comes from a
+ * SEPARATELY-INSTALLED oblaka-iac copy, so a cross-realm `instanceof` against THIS engine's class is
+ * always false. A binding with the migration shape IS migratable, whichever oblaka-iac built it.
+ */
+const migratableDatabaseName = (value: unknown): string | null => {
+	if (typeof value !== 'object' || value === null || !('options' in value)) {
+		return null
+	}
+	const { options } = value
+	if (typeof options !== 'object' || options === null) {
+		return null
+	}
+	if (!('migrationsDir' in options) || typeof options.migrationsDir !== 'string' || options.migrationsDir === '') {
+		return null
+	}
+	return 'name' in options && typeof options.name === 'string' ? options.name : null
+}
+
+/**
  * Find the D1 databases in a Worker's resource graph that declare a `migrationsDir` — those are the
  * ones a `migrate` step must `wrangler d1 migrations apply`. Databases without migrations are
- * provisioned by oblaka but need no apply step.
+ * provisioned by oblaka but need no apply step. Detection is structural (see `migratableDatabaseName`)
+ * so it works whether the Worker came from the engine's own oblaka-iac (vozka's self-deploy) or a
+ * separately-installed copy in a cloned app repo (the runner deploying an app).
  */
 export const findMigratableDatabases = (worker: Worker): MigratableDatabase[] => {
 	const databases: MigratableDatabase[] = []
 	for (const [binding, value] of Object.entries(worker.options.bindings ?? {})) {
-		if (value instanceof D1Database && value.options.migrationsDir !== undefined) {
-			databases.push({ binding, name: value.options.name })
+		const name = migratableDatabaseName(value)
+		if (name !== null) {
+			databases.push({ binding, name })
 		}
 	}
 	return databases
