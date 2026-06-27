@@ -15,7 +15,7 @@ export async function text(question: string, fallback?: string): Promise<string>
 	const rl = openReadline()
 	try {
 		const suffix = fallback !== undefined && fallback !== '' ? ` [${fallback}]` : ''
-		const answer = (await rl.question(`${question}${suffix}: `)).trim()
+		const answer = stripTerminalCruft(await rl.question(`${question}${suffix}: `)).trim()
 		if (answer === '' && fallback !== undefined) {
 			return fallback
 		}
@@ -63,14 +63,32 @@ export async function secret(question: string): Promise<string> {
 }
 
 /**
- * Strip terminal control cruft from a captured secret: bracketed-paste markers (`ESC[200~` / `ESC[201~`
- * that a terminal wraps a paste in), any other CSI escape sequence, and stray control characters. A
- * real token / key / id never contains these, so removing them is safe — and it fixes the case where a
- * paste arrives with the markers embedded (the value would otherwise be rejected as malformed).
+ * Strip terminal control cruft from a captured answer: bracketed-paste markers (`ESC[200~`/`ESC[201~`),
+ * any CSI/OSC escape sequence, and stray control characters. A real token / key / id / domain / email
+ * never contains these, so removing them is safe — and it fixes two real cases on an interactive TTY:
+ *  - a paste arriving with bracketed-paste markers embedded; and
+ *  - a terminal's OSC 10/11 color-query RESPONSE leaking into a later prompt. Some CLIs (notably `gh`,
+ *    via Go's termenv) query the background color with `ESC]11;?`; the terminal correctly replies with
+ *    `ESC]11;rgb:RRRR/GGGG/BBBB`, but that reply can land in the next readline read. In `terminal:true`
+ *    mode readline's keypress parser eats the `ESC]`, leaving the bare `11;rgb:…` payload in the line —
+ *    so we strip both the full escape sequence AND that bare leftover.
  */
 function stripTerminalCruft(value: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape/control bytes by design.
-	return value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x1f\x7f]/g, '')
+	return (
+		value
+			// Full OSC sequences: ESC ] … (BEL or ST). e.g. an OSC 10/11 dynamic-color response.
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape bytes by design.
+			.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+			// Bare OSC 10/11 color responses whose ESC introducer readline's keypress parser ate
+			// (`1X;rgb:RRRR/GGGG/BBBB`, optional leading `]`). Never appears in a real entered value.
+			.replace(/\]?1[0-9];rgb:[0-9a-fA-F]{1,4}(?:\/[0-9a-fA-F]{1,4}){2}/g, '')
+			// CSI sequences (bracketed-paste markers, cursor-position responses ESC[N;MR, SGR, …).
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape bytes by design.
+			.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+			// Any stray C0/C1 control char + DEL.
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal control bytes by design.
+			.replace(/[\x00-\x1f\x7f]/g, '')
+	)
 }
 
 /**
@@ -94,7 +112,7 @@ export async function confirm(question: string, defaultYes = false): Promise<boo
 	const rl = openReadline()
 	try {
 		const hint = defaultYes ? 'Y/n' : 'y/N'
-		const answer = (await rl.question(`${question} [${hint}]: `)).trim().toLowerCase()
+		const answer = stripTerminalCruft(await rl.question(`${question} [${hint}]: `)).trim().toLowerCase()
 		if (answer === '') {
 			return defaultYes
 		}
@@ -143,7 +161,7 @@ export async function select<T>(question: string, options: { label: string; valu
 	const rl = openReadline()
 	try {
 		for (;;) {
-			const answer = (await rl.question('    choose [1]: ')).trim()
+			const answer = stripTerminalCruft(await rl.question('    choose [1]: ')).trim()
 			const index = answer === '' ? 0 : Number.parseInt(answer, 10) - 1
 			const chosen = options[index]
 			if (chosen !== undefined) {
