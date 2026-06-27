@@ -24,16 +24,43 @@ export interface ShellStep {
  * + exit code only.
  */
 export async function run(step: ShellStep): Promise<void> {
+	// stdout/stderr are PIPED (not the inherited TTY) and streamed back here. A child that probes the
+	// terminal — notably `gh`, which queries the background color with `ESC]11;?` (Go's termenv) on a
+	// TTY stdout — sees a NON-tty output and SKIPS the probe, so its query/response can't leak into a
+	// later interactive prompt (readline would otherwise read the stray `…;rgb:…` reply). The operator
+	// still watches output live; a child may drop ANSI colors since it no longer detects a TTY.
 	const proc = Bun.spawn([step.command, ...step.args], {
 		cwd: step.cwd,
 		env: { ...process.env, ...step.env },
 		stdin: step.stdin !== undefined ? new TextEncoder().encode(step.stdin) : 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit',
+		stdout: 'pipe',
+		stderr: 'pipe',
 	})
+	await Promise.all([
+		pump(proc.stdout, (chunk) => void process.stdout.write(chunk)),
+		pump(proc.stderr, (chunk) => void process.stderr.write(chunk)),
+	])
 	const exitCode = await proc.exited
 	if (exitCode !== 0) {
 		throw new Error(`\`${step.command} ${step.args.join(' ')}\` failed (exit ${exitCode}).`)
+	}
+}
+
+/** Stream a child pipe to a sink, chunk by chunk, until it closes (a live tee that exposes no TTY). */
+async function pump(src: ReadableStream<Uint8Array>, write: (chunk: Uint8Array) => void): Promise<void> {
+	const reader = src.getReader()
+	try {
+		for (;;) {
+			const { done, value } = await reader.read()
+			if (done) {
+				return
+			}
+			if (value !== undefined) {
+				write(value)
+			}
+		}
+	} finally {
+		reader.releaseLock()
 	}
 }
 
