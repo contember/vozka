@@ -1,10 +1,10 @@
 // Typed fetch helper for the vozka control-plane JSON API (`/api/*`), plus the API DTO contract.
 //
 // Same-origin (`/api/...`), `credentials: 'include'`, JSON in/out. Non-2xx maps to a typed
-// `ApiError`. Session-expiry handling mirrors propustka's admin-ui: a Cloudflare Access login
-// bounce (opaque/cross-origin redirect, or a 200 that returns HTML instead of JSON) or a 401
-// triggers a full `location.reload()` so Access can re-challenge — a SPA fetch can't follow the
-// cross-origin Access login page.
+// `ApiError`. Auth is propustka-native (no Cloudflare Access edge): a missing/expired session
+// gets a JSON 401 carrying a `loginUrl`, so we bounce the browser to propustka's SSO login and
+// return to the current page afterwards (a blind reload would just loop — there's no edge to
+// re-challenge anymore). A short bounce guard breaks the loop if we come back still-unauthorized.
 //
 // The DTO types below are NOT generated and NOT imported from `@vozka/worker` — that package's
 // entry (`src/index.ts`) pulls in `cloudflare:workers` and the worker runtime, which can't be
@@ -197,44 +197,55 @@ export interface RunLogResponse {
 /** A typed non-2xx API failure surfaced to pages / the route error boundary. */
 export class ApiError extends Error {
 	readonly status: number
+	/** propustka SSO login URL — present only on a human-gated 401 (where the caller may bounce to login). */
+	readonly loginUrl?: string
 
-	constructor(status: number, message: string) {
+	constructor(status: number, message: string, loginUrl?: string) {
 		super(message)
 		this.name = 'ApiError'
 		this.status = status
+		if (loginUrl !== undefined) this.loginUrl = loginUrl
 	}
 }
 
 const BASE = '/api'
 
-/** Hard reload so Cloudflare Access re-challenges the (now expired) session. */
-function reloadForAccess(): never {
-	location.reload()
-	// `location.reload()` doesn't actually return; throw to satisfy the type system and stop any
-	// further processing while the navigation kicks in.
-	throw new ApiError(401, 'Session expired — reloading to re-authenticate.')
-}
+// ── Auth-redirect (human SSO) ────────────────────────────────────────────────
+//
+// On a 401 carrying a `loginUrl`, send the browser to propustka's SSO login and return to the
+// CURRENT page afterwards (the worker's `loginUrl` points back at the API path, so we rewrite its
+// `redirect` to `window.location.href`). Bounce guard: if we come back STILL unauthorized within a
+// short window (e.g. a Google identity not provisioned for vozka), stop redirecting and surface the
+// error — otherwise the page flickers through login forever.
+const LOGIN_BOUNCE_KEY = 'vozka.auth.login-bounce'
+const LOGIN_BOUNCE_WINDOW_MS = 10_000
 
-function looksLikeAccessRedirect(res: Response): boolean {
-	// Opaque (cross-origin redirect we couldn't read) — the classic Access bounce.
-	if (res.type === 'opaque' || res.type === 'opaqueredirect') return true
-	// A 200/30x that returns HTML instead of JSON is the Access login page.
-	const contentType = res.headers.get('content-type') ?? ''
-	if (res.ok && !contentType.includes('application/json')) return true
-	return false
+function redirectToLogin(loginUrl: string): boolean {
+	const now = Date.now()
+	const last = Number(sessionStorage.getItem(LOGIN_BOUNCE_KEY) ?? '0')
+	if (Number.isFinite(last) && now - last < LOGIN_BOUNCE_WINDOW_MS) return false
+	sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(now))
+	const target = new URL(loginUrl)
+	target.searchParams.set('redirect', window.location.href)
+	window.location.assign(target.toString())
+	return true
 }
 
 async function readError(res: Response): Promise<ApiError> {
 	let message = `Request failed (${res.status})`
+	let loginUrl: string | undefined
 	try {
 		const contentType = res.headers.get('content-type') ?? ''
 		if (contentType.includes('application/json')) {
 			const body: unknown = await res.json()
-			// The worker's `error()` helper returns `{ error: string }`.
+			// The worker's `error()` helper returns `{ error: string, loginUrl?: string }`.
 			if (body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
 				message = body.error
 			} else if (body !== null && typeof body === 'object' && 'message' in body && typeof body.message === 'string') {
 				message = body.message
+			}
+			if (body !== null && typeof body === 'object' && 'loginUrl' in body && typeof body.loginUrl === 'string') {
+				loginUrl = body.loginUrl
 			}
 		} else {
 			const text = await res.text()
@@ -243,7 +254,7 @@ async function readError(res: Response): Promise<ApiError> {
 	} catch {
 		// Keep the default message.
 	}
-	return new ApiError(res.status, message)
+	return new ApiError(res.status, message, loginUrl)
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -256,7 +267,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 			method,
 			headers,
 			credentials: 'include',
-			redirect: 'manual',
 			body: body === undefined ? undefined : JSON.stringify(body),
 		})
 	} catch (cause) {
@@ -264,10 +274,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 		throw new ApiError(0, message)
 	}
 
-	// 401 or an Access login bounce → hard reload to re-challenge.
-	if (res.status === 401 || looksLikeAccessRedirect(res)) reloadForAccess()
-
-	if (!res.ok) throw await readError(res)
+	if (!res.ok) {
+		const err = await readError(res)
+		// A human-gated 401 (no/expired propustka session) → bounce to SSO and return here after.
+		// Hang the promise while the navigation is in flight so no auth error flashes in the route.
+		if (res.status === 401 && err.loginUrl !== undefined && redirectToLogin(err.loginUrl)) {
+			return await new Promise<never>(() => {})
+		}
+		throw err
+	}
+	sessionStorage.removeItem(LOGIN_BOUNCE_KEY)
 
 	// Read the body as text and parse it. An empty body (204 / no content) normalizes to `null` so
 	// mutation callers that ignore the result get a defined value. `JSON.parse` returns `any`, so the
